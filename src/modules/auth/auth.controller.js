@@ -5,14 +5,26 @@ class AuthController {
   // Register
   static async register(req, res) {
     try {
-      const { username, email, phone, password, confirmPassword } = req.body;
-
-      const result = await AuthService.register({
-        username,
+      const {
         email,
         phone,
+        dateOfBirth,
         password,
         confirmPassword,
+        firstName,
+        lastName,
+        location,
+      } = req.body;
+
+      const result = await AuthService.register({
+        email,
+        phone,
+        dateOfBirth,
+        password,
+        confirmPassword,
+        firstName,
+        lastName,
+        location,
       });
 
       if (result.success) {
@@ -109,6 +121,43 @@ class AuthController {
       role: req.user.role,
       userId: req.user.id,
     });
+  }
+
+  // Set username after email verification
+  static async setUsername(req, res) {
+    try {
+      const userId = req.user.id;
+      const { username } = req.body;
+
+      const result = await AuthService.setUsername(userId, username);
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      }
+
+      return sendError(res, result.statusCode, result.message, result.error);
+    } catch (error) {
+      console.error('Set username controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  // Suggest username based on firstName and lastName
+  static async suggestUsername(req, res) {
+    try {
+      const userId = req.user.id;
+
+      const result = await AuthService.suggestUsername(userId);
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      }
+
+      return sendError(res, result.statusCode, result.message, result.error);
+    } catch (error) {
+      console.error('Suggest username controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
   }
 
   // Admin updates user role

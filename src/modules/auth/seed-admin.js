@@ -7,6 +7,7 @@ const seedDefaultAdmin = async () => {
     const adminPassword = process.env.ADMIN_PASSWORD;
     const adminUsername = process.env.ADMIN_USERNAME || 'superadmin';
     const adminPhone = process.env.ADMIN_PHONE || '0900000000';
+    const adminDob = process.env.ADMIN_DOB || '1990-01-01';
 
     if (!adminEmail || !adminPassword) {
       console.warn('Skip seeding admin: missing ADMIN_EMAIL or ADMIN_PASSWORD in .env');
@@ -21,6 +22,7 @@ const seedDefaultAdmin = async () => {
         username: adminUsername,
         email: normalizedEmail,
         phone: adminPhone,
+        dateOfBirth: new Date(adminDob),
         password: adminPassword,
         role: ROLES.ADMIN,
         verified: true,
@@ -46,6 +48,11 @@ const seedDefaultAdmin = async () => {
 
     if (!adminUser.isActive) {
       adminUser.isActive = true;
+      hasChanges = true;
+    }
+
+    if (!adminUser.dateOfBirth) {
+      adminUser.dateOfBirth = new Date(adminDob);
       hasChanges = true;
     }
 

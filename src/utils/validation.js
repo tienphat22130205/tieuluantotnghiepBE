@@ -19,9 +19,42 @@ const validateUsername = (username) => {
   return usernameRegex.test(username);
 };
 
+const validateDateOfBirth = (dateOfBirth) => {
+  const dob = new Date(dateOfBirth);
+
+  if (Number.isNaN(dob.getTime())) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return dob <= today;
+};
+
+const isAtLeastAge = (dateOfBirth, minAge = 13) => {
+  if (!validateDateOfBirth(dateOfBirth)) {
+    return false;
+  }
+
+  const dob = new Date(dateOfBirth);
+  const today = new Date();
+
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+
+  return age >= minAge;
+};
+
 module.exports = {
   validateEmail,
   validatePhone,
   validatePassword,
   validateUsername,
+  validateDateOfBirth,
+  isAtLeastAge,
 };

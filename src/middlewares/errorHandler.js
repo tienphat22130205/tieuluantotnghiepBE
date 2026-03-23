@@ -3,6 +3,13 @@ const { sendError } = require('../utils/response');
 const errorHandler = (err, req, res, next) => {
   console.error('Error:', err);
 
+  if (err.name === 'MulterError') {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return sendError(res, 400, 'Kích thước file vượt quá giới hạn cho phép');
+    }
+    return sendError(res, 400, err.message || 'Lỗi upload file');
+  }
+
   // Mongoose validation error
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors).map(e => e.message);

@@ -1,7 +1,14 @@
 const jwt = require('jsonwebtoken');
 const User = require('./auth.model');
 const { generateToken } = require('../../utils/jwt');
-const { validateEmail, validatePhone, validatePassword, validateUsername } = require('../../utils/validation');
+const {
+  validateEmail,
+  validatePhone,
+  validatePassword,
+  validateUsername,
+  validateDateOfBirth,
+  isAtLeastAge,
+} = require('../../utils/validation');
 const { MESSAGES, HTTP_STATUS, ROLES } = require('../../constants');
 const emailService = require('../../services/email.service');
 
@@ -9,23 +16,23 @@ class AuthService {
   // Register new user
   static async register(userData) {
     try {
-      const { username, email, phone, password, confirmPassword } = userData;
+      const {
+        email,
+        phone,
+        dateOfBirth,
+        password,
+        confirmPassword,
+        firstName,
+        lastName,
+        location,
+      } = userData;
 
       // Validation
-      if (!username || !email || !phone || !password || !confirmPassword) {
+      if (!email || !phone || !dateOfBirth || !password || !confirmPassword || !firstName || !lastName) {
         return {
           success: false,
           statusCode: HTTP_STATUS.BAD_REQUEST,
           message: MESSAGES.MISSING_FIELDS,
-        };
-      }
-
-      // Validate username format
-      if (!validateUsername(username)) {
-        return {
-          success: false,
-          statusCode: HTTP_STATUS.BAD_REQUEST,
-          message: 'Tên người dùng phải có 3-20 ký tự, chỉ chứa chữ, số và dấu gạch dưới',
         };
       }
 
@@ -44,6 +51,24 @@ class AuthService {
           success: false,
           statusCode: HTTP_STATUS.BAD_REQUEST,
           message: MESSAGES.INVALID_PHONE,
+        };
+      }
+
+      // Validate date of birth
+      if (!validateDateOfBirth(dateOfBirth)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: MESSAGES.INVALID_DATE_OF_BIRTH,
+        };
+      }
+
+      // Age gate (must be at least 13 years old)
+      if (!isAtLeastAge(dateOfBirth, 13)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: MESSAGES.MINIMUM_AGE_REQUIRED,
         };
       }
 
@@ -75,16 +100,6 @@ class AuthService {
         };
       }
 
-      // Check if username already exists
-      existingUser = await User.findOne({ username });
-      if (existingUser) {
-        return {
-          success: false,
-          statusCode: HTTP_STATUS.CONFLICT,
-          message: MESSAGES.USERNAME_ALREADY_EXISTS,
-        };
-      }
-
       // Check if phone already exists
       existingUser = await User.findOne({ phone });
       if (existingUser) {
@@ -95,14 +110,31 @@ class AuthService {
         };
       }
 
+      const normalizedLocation = location && typeof location === 'object'
+        ? {
+            lat: typeof location.lat === 'number' ? location.lat : null,
+            lng: typeof location.lng === 'number' ? location.lng : null,
+            address: location.address || '',
+            city: location.city || '',
+            country: location.country || '',
+            updatedAt: new Date(),
+          }
+        : undefined;
+
       // Create new user
       const newUser = new User({
-        username,
+        username: null, // Username will be set later
         email: email.toLowerCase(),
         phone,
+        dateOfBirth: new Date(dateOfBirth),
         password,
+        firstName: firstName || '',
+        lastName: lastName || '',
+        avatar: null,
+        location: normalizedLocation,
         role: ROLES.USER,
         verified: false, // Email not verified yet
+        usernameSelected: false,
       });
 
       await newUser.save();
@@ -137,7 +169,8 @@ class AuthService {
         statusCode: HTTP_STATUS.CREATED,
         message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.',
         data: {
-          user: newUser.toJSON(),
+          userId: newUser._id,
+          email: newUser.email,
           message: 'Một email xác thực đã được gửi đến ' + newUser.email,
         },
       };
@@ -348,6 +381,132 @@ class AuthService {
       };
     } catch (error) {
       console.error('Verify email error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  // Update role (admin only)
+  static async setUsername(userId, username) {
+    try {
+      // Validate username
+      if (!username) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Vui lòng cung cấp username',
+        };
+      }
+
+      // Validate username format
+      if (!validateUsername(username)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Tên người dùng phải có 3-20 ký tự, chỉ chứa chữ, số và dấu gạch dưới',
+        };
+      }
+
+      // Check if username already exists
+      const existingUser = await User.findOne({ username });
+      if (existingUser) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.CONFLICT,
+          message: MESSAGES.USERNAME_ALREADY_EXISTS,
+        };
+      }
+
+      // Find user and ensure email is verified
+      const user = await User.findById(userId);
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      if (!user.verified) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Email chưa được xác thực. Vui lòng xác thực email trước khi đặt username.',
+        };
+      }
+
+      // Update username
+      user.username = username;
+      user.usernameSelected = true;
+      await user.save();
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Đặt username thành công',
+        data: {
+          username: user.username,
+          user: user.toJSON(),
+        },
+      };
+    } catch (error) {
+      console.error('Set username error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  // Suggest username for logged-in user
+  static async suggestUsername(userId) {
+    try {
+      const user = await User.findById(userId);
+
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      const firstName = (user.firstName || '').trim();
+      const lastName = (user.lastName || '').trim();
+
+      if (!firstName || !lastName) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Thiếu firstName hoặc lastName trong hồ sơ người dùng',
+        };
+      }
+
+      // Create suggested usernames
+      const baseUsername = (firstName + lastName).toLowerCase().replace(/\s/g, '');
+      const suggestions = [
+        baseUsername, // e.g., "johnsmith"
+        `${firstName.toLowerCase()}_${lastName.toLowerCase()}`.replace(/\s/g, '_'), // e.g., "john_smith"
+        `${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}`.replace(/\s/g, ''), // e.g., "jsmith"
+      ];
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Gợi ý username thành công',
+        data: {
+          suggestions,
+          note: 'Bạn có thể sử dụng một trong những gợi ý trên hoặc tạo username riêng của mình',
+        },
+      };
+    } catch (error) {
+      console.error('Suggest username error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

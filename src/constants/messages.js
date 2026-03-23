@@ -12,6 +12,8 @@ const MESSAGES = {
   INVALID_PASSWORD: 'Mật khẩu không hợp lệ',
   WEAK_PASSWORD: 'Mật khẩu phải có ít nhất 6 ký tự',
   INVALID_PHONE: 'Số điện thoại không hợp lệ',
+  INVALID_DATE_OF_BIRTH: 'Ngày sinh không hợp lệ',
+  MINIMUM_AGE_REQUIRED: 'Bạn phải từ 13 tuổi trở lên để đăng ký tài khoản',
   MISSING_FIELDS: 'Vui lòng điền đầy đủ thông tin',
 
   // Token Messages
