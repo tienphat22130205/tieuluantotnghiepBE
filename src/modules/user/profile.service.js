@@ -147,7 +147,7 @@ class ProfileService {
     }
   }
 
-  static async updateMyAvatar(userId, avatarUrl) {
+  static async updateMyAvatar(userId, avatarUrl, payload = {}) {
     try {
       if (!mongoose.Types.ObjectId.isValid(userId)) {
         return {
@@ -168,6 +168,38 @@ class ProfileService {
 
       user.avatar = avatarUrl;
       await user.save();
+
+      const visibility = String(payload.visibility || 'public').toLowerCase();
+      const allowedVisibility = ['public', 'friends', 'private'];
+      const normalizedVisibility = allowedVisibility.includes(visibility) ? visibility : 'public';
+
+      let hashtags = [];
+      if (payload.hashtags) {
+        if (Array.isArray(payload.hashtags)) {
+          hashtags = payload.hashtags;
+        } else if (typeof payload.hashtags === 'string') {
+          try {
+            const parsed = JSON.parse(payload.hashtags);
+            hashtags = Array.isArray(parsed) ? parsed : payload.hashtags.split(',');
+          } catch (error) {
+            hashtags = payload.hashtags.split(',');
+          }
+        }
+      }
+
+      const normalizedHashtags = [...new Set(hashtags
+        .map((item) => String(item || '').trim().toLowerCase())
+        .filter(Boolean)
+        .map((item) => (item.startsWith('#') ? item : `#${item}`)))].slice(0, 20);
+
+      await Post.create({
+        author: user._id,
+        content: String(payload.content || 'Da cap nhat anh dai dien').trim(),
+        hashtags: normalizedHashtags,
+        images: [avatarUrl],
+        visibility: normalizedVisibility,
+        postType: 'avatar_update',
+      });
 
       return this.getProfileByUserId(user._id);
     } catch (error) {

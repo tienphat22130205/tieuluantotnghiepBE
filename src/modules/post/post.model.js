@@ -19,10 +19,21 @@ const postSchema = new mongoose.Schema(
         trim: true,
       },
     ],
+    hashtags: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     visibility: {
       type: String,
-      enum: ['public', 'followers', 'private'],
+      enum: ['public', 'friends', 'private'],
       default: 'public',
+    },
+    postType: {
+      type: String,
+      enum: ['image', 'avatar_update', 'status'],
+      default: 'image',
     },
   },
   {

@@ -48,7 +48,7 @@ class ProfileController {
       }
 
       const avatarUrl = `/uploads/avatars/${req.file.filename}`;
-      const result = await ProfileService.updateMyAvatar(req.user.id, avatarUrl);
+      const result = await ProfileService.updateMyAvatar(req.user.id, avatarUrl, req.body || {});
 
       if (!result.success) {
         return sendError(res, result.statusCode, result.message, result.error);
