@@ -194,7 +194,7 @@ class ProfileService {
 
       await Post.create({
         author: user._id,
-        content: String(payload.content || 'Da cap nhat anh dai dien').trim(),
+        content: String(payload.content || 'Đã cập nhật ảnh đại diện').trim(),
         hashtags: normalizedHashtags,
         images: [avatarUrl],
         visibility: normalizedVisibility,

@@ -99,6 +99,62 @@ class PostController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  static async likePost(req, res) {
+    try {
+      const result = await PostService.likePost(req.user.id, req.params.postId);
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      console.error('Like post controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async unlikePost(req, res) {
+    try {
+      const result = await PostService.unlikePost(req.user.id, req.params.postId);
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      console.error('Unlike post controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async addComment(req, res) {
+    try {
+      const result = await PostService.addComment(req.user.id, req.params.postId, req.body || {});
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      console.error('Add comment controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async deleteComment(req, res) {
+    try {
+      const result = await PostService.deleteComment(req.user.id, req.params.postId, req.params.commentId);
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      console.error('Delete comment controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = PostController;

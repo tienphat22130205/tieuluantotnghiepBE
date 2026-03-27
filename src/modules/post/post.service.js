@@ -44,7 +44,71 @@ const getFriendIdSet = (user) => {
     .filter((id) => followerIds.has(id)));
 };
 
+const canViewerAccessPost = (viewerId, post, friendIdSet) => {
+  const postAuthorId = post.author.toString();
+
+  if (postAuthorId === viewerId.toString()) {
+    return true;
+  }
+
+  if (post.visibility === 'public') {
+    return true;
+  }
+
+  if (post.visibility === 'friends') {
+    return friendIdSet.has(postAuthorId);
+  }
+
+  return false;
+};
+
 class PostService {
+  static async getViewerAndPostWithAccess(viewerId, postId) {
+    if (!mongoose.Types.ObjectId.isValid(viewerId) || !mongoose.Types.ObjectId.isValid(postId)) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'User ID hoặc Post ID không hợp lệ',
+      };
+    }
+
+    const [viewer, post] = await Promise.all([
+      User.findById(viewerId).select('followers following'),
+      Post.findById(postId),
+    ]);
+
+    if (!viewer) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.NOT_FOUND,
+        message: MESSAGES.USER_NOT_FOUND,
+      };
+    }
+
+    if (!post) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.NOT_FOUND,
+        message: 'Không tìm thấy bài viết',
+      };
+    }
+
+    const friendIdSet = getFriendIdSet(viewer);
+    if (!canViewerAccessPost(viewerId, post, friendIdSet)) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.FORBIDDEN,
+        message: 'Bạn không có quyền truy cập bài viết này',
+      };
+    }
+
+    return {
+      success: true,
+      viewer,
+      post,
+    };
+  }
+
   static async createImagePost(userId, payload = {}, files = [], postType = 'image') {
     try {
       if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -422,6 +486,185 @@ class PostService {
       };
     } catch (error) {
       console.error('Delete my post error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async likePost(userId, postId) {
+    try {
+      const accessResult = await this.getViewerAndPostWithAccess(userId, postId);
+      if (!accessResult.success) {
+        return accessResult;
+      }
+
+      const { post } = accessResult;
+      const liked = post.likes.some((id) => id.toString() === userId.toString());
+      if (!liked) {
+        post.likes.push(userId);
+        await post.save();
+      }
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: liked ? 'Bạn đã tym bài viết trước đó' : 'Tym bài viết thành công',
+        data: {
+          postId: post._id,
+          likeCount: post.likes.length,
+          liked: true,
+        },
+      };
+    } catch (error) {
+      console.error('Like post error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async unlikePost(userId, postId) {
+    try {
+      const accessResult = await this.getViewerAndPostWithAccess(userId, postId);
+      if (!accessResult.success) {
+        return accessResult;
+      }
+
+      const { post } = accessResult;
+      const previousCount = post.likes.length;
+      post.likes = post.likes.filter((id) => id.toString() !== userId.toString());
+      const changed = post.likes.length !== previousCount;
+      if (changed) {
+        await post.save();
+      }
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: changed ? 'Bỏ tym bài viết thành công' : 'Bạn chưa tym bài viết này',
+        data: {
+          postId: post._id,
+          likeCount: post.likes.length,
+          liked: false,
+        },
+      };
+    } catch (error) {
+      console.error('Unlike post error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async addComment(userId, postId, payload = {}) {
+    try {
+      const accessResult = await this.getViewerAndPostWithAccess(userId, postId);
+      if (!accessResult.success) {
+        return accessResult;
+      }
+
+      const content = String(payload.content || '').trim();
+      if (!content) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Nội dung comment không được để trống',
+        };
+      }
+
+      const { post } = accessResult;
+      post.comments.push({
+        user: userId,
+        content,
+      });
+      await post.save();
+
+      const newComment = post.comments[post.comments.length - 1];
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.CREATED,
+        message: 'Comment bài viết thành công',
+        data: {
+          postId: post._id,
+          comment: newComment,
+          commentCount: post.comments.length,
+        },
+      };
+    } catch (error) {
+      console.error('Add comment error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async deleteComment(userId, postId, commentId) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(postId) || !mongoose.Types.ObjectId.isValid(commentId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'User ID, Post ID hoặc Comment ID không hợp lệ',
+        };
+      }
+
+      const post = await Post.findById(postId);
+      if (!post) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy bài viết',
+        };
+      }
+
+      const comment = post.comments.id(commentId);
+      if (!comment) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy comment',
+        };
+      }
+
+      const isPostOwner = post.author.toString() === userId.toString();
+      const isCommentOwner = comment.user.toString() === userId.toString();
+
+      if (!isPostOwner && !isCommentOwner) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.FORBIDDEN,
+          message: 'Bạn không có quyền xóa comment này',
+        };
+      }
+
+      comment.deleteOne();
+      await post.save();
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Xóa comment thành công',
+        data: {
+          postId: post._id,
+          deletedCommentId: commentId,
+          commentCount: post.comments.length,
+        },
+      };
+    } catch (error) {
+      console.error('Delete comment error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

@@ -12,5 +12,9 @@ router.get('/me', authenticate, PostController.getMyPosts);
 router.get('/user/:userId', authenticate, PostController.getUserPosts);
 router.patch('/:postId', authenticate, PostController.updateMyPost);
 router.delete('/:postId', authenticate, PostController.deleteMyPost);
+router.post('/:postId/like', authenticate, PostController.likePost);
+router.delete('/:postId/like', authenticate, PostController.unlikePost);
+router.post('/:postId/comments', authenticate, PostController.addComment);
+router.delete('/:postId/comments/:commentId', authenticate, PostController.deleteComment);
 
 module.exports = router;
