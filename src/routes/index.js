@@ -2,6 +2,7 @@ const express = require('express');
 const authRoutes = require('../modules/auth/auth.routes');
 const profileRoutes = require('../modules/user/profile.routes');
 const postRoutes = require('../modules/post/post.routes');
+const aiRoutes = require('../modules/ai/ai.routes');
 
 const router = express.Router();
 
@@ -9,6 +10,7 @@ const router = express.Router();
 router.use('/api/auth', authRoutes);
 router.use('/api/profile', profileRoutes);
 router.use('/api/posts', postRoutes);
+router.use('/api/ai', aiRoutes);
 
 // Health check
 router.get('/api/health', (req, res) => {

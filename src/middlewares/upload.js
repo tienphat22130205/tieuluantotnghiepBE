@@ -70,7 +70,16 @@ const uploadPostImages = multer({
   },
 });
 
+const uploadPostImagesMemory = multer({
+  storage: multer.memoryStorage(),
+  fileFilter,
+  limits: {
+    fileSize: maxFileSize,
+  },
+});
+
 module.exports = {
   uploadAvatar,
   uploadPostImages,
+  uploadPostImagesMemory,
 };
