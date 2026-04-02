@@ -38,10 +38,16 @@ const normalizeHashtags = (hashtags) => {
 const toIdSet = (list = []) => new Set(list.map((id) => id.toString()));
 
 const getFriendIdSet = (user) => {
+  // Include both mutual followers (friends via follow) and explicit friends (via friend request)
   const followerIds = toIdSet(user?.followers || []);
-  return new Set((user?.following || [])
+  const mutualFollows = new Set((user?.following || [])
     .map((id) => id.toString())
     .filter((id) => followerIds.has(id)));
+  
+  const explicitFriends = toIdSet(user?.friends || []);
+  
+  // Combine both sets
+  return new Set([...mutualFollows, ...explicitFriends]);
 };
 
 const canViewerAccessPost = (viewerId, post, friendIdSet) => {
@@ -73,7 +79,7 @@ class PostService {
     }
 
     const [viewer, post] = await Promise.all([
-      User.findById(viewerId).select('followers following'),
+      User.findById(viewerId).select('followers following friends'),
       Post.findById(postId),
     ]);
 
@@ -209,7 +215,7 @@ class PostService {
         };
       }
 
-      const viewer = await User.findById(userId).select('followers following');
+      const viewer = await User.findById(userId).select('followers following friends');
       if (!viewer) {
         return {
           success: false,
@@ -262,7 +268,7 @@ class PostService {
       }
 
       const [viewer, targetUser] = await Promise.all([
-        User.findById(viewerId).select('followers following'),
+        User.findById(viewerId).select('followers following friends'),
         User.findById(targetUserId).select('_id'),
       ]);
 
