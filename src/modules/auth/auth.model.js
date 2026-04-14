@@ -71,6 +71,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    isOnline: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    lastSeen: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     role: {
       type: String,
       enum: [ROLES.USER, ROLES.MODERATOR, ROLES.ADMIN],

@@ -1,5 +1,6 @@
 const FriendRequest = require('./friend.model');
 const User = require('../auth/auth.model');
+const NotificationService = require('../notification/notification.service');
 
 const FRIEND_REQUEST_ACTIONS = ['accepted', 'declined'];
 const USER_SUMMARY_FIELDS = 'username email avatar firstName lastName';
@@ -115,6 +116,14 @@ class FriendService {
       }
     );
 
+    await NotificationService.createNotification({
+      recipient: toId,
+      actor: fromId,
+      type: 'friend_request',
+      friendRequest: friendRequest._id,
+      message: 'đã gửi cho bạn một lời mời kết bạn',
+    });
+
     return friendRequest.populate(['from', 'to']);
   }
 
@@ -168,6 +177,14 @@ class FriendService {
           following: friendRequest.from,
           followers: friendRequest.from,
         },
+      });
+
+      await NotificationService.createNotification({
+        recipient: friendRequest.from,
+        actor: friendRequest.to,
+        type: 'friend_accept',
+        friendRequest: friendRequest._id,
+        message: 'đã chấp nhận lời mời kết bạn của bạn',
       });
     }
 
@@ -236,6 +253,13 @@ class FriendService {
       { $addToSet: { followers: userId } },
       { new: true }
     );
+
+    await NotificationService.createNotification({
+      recipient: targetUserId,
+      actor: userId,
+      type: 'follow',
+      message: 'đã theo dõi bạn',
+    });
 
     return { message: 'Đã theo dõi thành công' };
   }

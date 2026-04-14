@@ -155,6 +155,20 @@ class PostController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  static async sharePost(req, res) {
+    try {
+      const result = await PostService.sharePost(req.user.id, req.params.postId, req.body || {});
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      console.error('Share post controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = PostController;

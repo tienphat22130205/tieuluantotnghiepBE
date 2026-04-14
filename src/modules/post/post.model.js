@@ -32,8 +32,13 @@ const postSchema = new mongoose.Schema(
     },
     postType: {
       type: String,
-      enum: ['image', 'avatar_update', 'status'],
+      enum: ['image', 'avatar_update', 'status', 'share'],
       default: 'image',
+    },
+    sharedPost: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Post',
+      default: null,
     },
     likes: [
       {
@@ -59,6 +64,15 @@ const postSchema = new mongoose.Schema(
         },
       },
     ],
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

@@ -16,5 +16,6 @@ router.post('/:postId/like', authenticate, PostController.likePost);
 router.delete('/:postId/like', authenticate, PostController.unlikePost);
 router.post('/:postId/comments', authenticate, PostController.addComment);
 router.delete('/:postId/comments/:commentId', authenticate, PostController.deleteComment);
+router.post('/:postId/share', authenticate, PostController.sharePost);
 
 module.exports = router;

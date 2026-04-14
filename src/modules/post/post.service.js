@@ -1,9 +1,31 @@
 const mongoose = require('mongoose');
 const Post = require('./post.model');
 const User = require('../auth/auth.model');
+const NotificationService = require('../notification/notification.service');
+const { emitToPostRoom, emitToUser } = require('../../realtime/socket');
 const { HTTP_STATUS, MESSAGES } = require('../../constants');
 
 const ALLOWED_VISIBILITY = ['public', 'friends', 'private'];
+
+const SHARED_POST_POPULATE = {
+  path: 'sharedPost',
+  match: {
+    isDeleted: { $ne: true },
+  },
+  populate: {
+    path: 'author',
+    select: 'username firstName lastName avatar',
+  },
+};
+
+const COMMENT_USER_POPULATE = {
+  path: 'comments.user',
+  select: 'username firstName lastName avatar',
+};
+
+const ACTIVE_POST_FILTER = {
+  isDeleted: { $ne: true },
+};
 
 const normalizeHashtags = (hashtags) => {
   if (!hashtags) {
@@ -80,7 +102,7 @@ class PostService {
 
     const [viewer, post] = await Promise.all([
       User.findById(viewerId).select('followers following friends'),
-      Post.findById(postId),
+      Post.findOne({ _id: postId, ...ACTIVE_POST_FILTER }),
     ]);
 
     if (!viewer) {
@@ -186,7 +208,11 @@ class PostService {
         };
       }
 
-      const posts = await Post.find({ author: userId }).sort({ createdAt: -1 });
+      const posts = await Post.find({ author: userId, ...ACTIVE_POST_FILTER })
+        .populate('author', 'username firstName lastName avatar')
+        .populate(SHARED_POST_POPULATE)
+        .populate(COMMENT_USER_POPULATE)
+        .sort({ createdAt: -1 });
 
       return {
         success: true,
@@ -236,8 +262,13 @@ class PostService {
         visibilityConditions.push({ visibility: 'friends', author: { $in: friendIds } });
       }
 
-      const posts = await Post.find({ $or: visibilityConditions })
+      const posts = await Post.find({
+        ...ACTIVE_POST_FILTER,
+        $or: visibilityConditions,
+      })
         .populate('author', 'username firstName lastName avatar')
+        .populate(SHARED_POST_POPULATE)
+        .populate(COMMENT_USER_POPULATE)
         .sort({ createdAt: -1 });
 
       return {
@@ -284,19 +315,22 @@ class PostService {
       const friendIdSet = getFriendIdSet(viewer);
       const isFriend = friendIdSet.has(targetUserId.toString());
 
-      let query = { author: targetUserId, visibility: 'public' };
+      let query = { author: targetUserId, visibility: 'public', ...ACTIVE_POST_FILTER };
 
       if (isOwner) {
-        query = { author: targetUserId };
+        query = { author: targetUserId, ...ACTIVE_POST_FILTER };
       } else if (isFriend) {
         query = {
           author: targetUserId,
           visibility: { $in: ['public', 'friends'] },
+          ...ACTIVE_POST_FILTER,
         };
       }
 
       const posts = await Post.find(query)
         .populate('author', 'username firstName lastName avatar')
+        .populate(SHARED_POST_POPULATE)
+        .populate(COMMENT_USER_POPULATE)
         .sort({ createdAt: -1 });
 
       return {
@@ -382,7 +416,7 @@ class PostService {
         };
       }
 
-      const post = await Post.findById(postId);
+      const post = await Post.findOne({ _id: postId, ...ACTIVE_POST_FILTER });
       if (!post) {
         return {
           success: false,
@@ -463,7 +497,7 @@ class PostService {
         };
       }
 
-      const post = await Post.findById(postId);
+      const post = await Post.findOne({ _id: postId, ...ACTIVE_POST_FILTER });
       if (!post) {
         return {
           success: false,
@@ -480,7 +514,22 @@ class PostService {
         };
       }
 
-      await Post.deleteOne({ _id: postId });
+      const relatedShareIds = await Post.find({
+        sharedPost: post._id,
+        ...ACTIVE_POST_FILTER,
+      }).distinct('_id');
+
+      const idsToSoftDelete = [post._id, ...relatedShareIds];
+      const deletedAt = new Date();
+      await Post.updateMany(
+        { _id: { $in: idsToSoftDelete }, ...ACTIVE_POST_FILTER },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt,
+          },
+        }
+      );
 
       return {
         success: true,
@@ -488,6 +537,8 @@ class PostService {
         message: 'Xóa bài viết thành công',
         data: {
           deletedPostId: postId,
+          deletedShareCount: relatedShareIds.length,
+          hardDeleteAfterDays: 30,
         },
       };
     } catch (error) {
@@ -513,6 +564,20 @@ class PostService {
       if (!liked) {
         post.likes.push(userId);
         await post.save();
+
+        await NotificationService.createNotification({
+          recipient: post.author,
+          actor: userId,
+          type: 'like',
+          post: post._id,
+          message: 'đã tym bài viết của bạn',
+        });
+
+        emitToPostRoom(post._id, 'post:liked', {
+          postId: post._id,
+          userId,
+          likeCount: post.likes.length,
+        });
       }
 
       return {
@@ -549,6 +614,12 @@ class PostService {
       const changed = post.likes.length !== previousCount;
       if (changed) {
         await post.save();
+
+        emitToPostRoom(post._id, 'post:unliked', {
+          postId: post._id,
+          userId,
+          likeCount: post.likes.length,
+        });
       }
 
       return {
@@ -594,8 +665,23 @@ class PostService {
         content,
       });
       await post.save();
+      await post.populate(COMMENT_USER_POPULATE);
+
+      await NotificationService.createNotification({
+        recipient: post.author,
+        actor: userId,
+        type: 'comment',
+        post: post._id,
+        message: 'đã bình luận bài viết của bạn',
+      });
 
       const newComment = post.comments[post.comments.length - 1];
+      emitToPostRoom(post._id, 'post:commented', {
+        postId: post._id,
+        comment: newComment,
+        commentCount: post.comments.length,
+      });
+
       return {
         success: true,
         statusCode: HTTP_STATUS.CREATED,
@@ -627,7 +713,7 @@ class PostService {
         };
       }
 
-      const post = await Post.findById(postId);
+      const post = await Post.findOne({ _id: postId, ...ACTIVE_POST_FILTER });
       if (!post) {
         return {
           success: false,
@@ -659,6 +745,12 @@ class PostService {
       comment.deleteOne();
       await post.save();
 
+      emitToPostRoom(post._id, 'post:comment-deleted', {
+        postId: post._id,
+        deletedCommentId: commentId,
+        commentCount: post.comments.length,
+      });
+
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
@@ -671,6 +763,83 @@ class PostService {
       };
     } catch (error) {
       console.error('Delete comment error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async sharePost(userId, postId, payload = {}) {
+    try {
+      const accessResult = await this.getViewerAndPostWithAccess(userId, postId);
+      if (!accessResult.success) {
+        return accessResult;
+      }
+
+      const { post: originalPost } = accessResult;
+      const content = String(payload.content || '').trim();
+      const visibility = String(payload.visibility || 'public').toLowerCase();
+      const hashtags = normalizeHashtags(payload.hashtags);
+
+      if (!ALLOWED_VISIBILITY.includes(visibility)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Chế độ hiển thị không hợp lệ. Chỉ chấp nhận: public, friends, private',
+        };
+      }
+
+      const sharedPost = await Post.create({
+        author: userId,
+        content,
+        hashtags,
+        images: [],
+        visibility,
+        postType: 'share',
+        sharedPost: originalPost._id,
+      });
+
+      await sharedPost.populate('author', 'username firstName lastName avatar');
+      await sharedPost.populate(SHARED_POST_POPULATE);
+
+      await NotificationService.createNotification({
+        recipient: originalPost.author,
+        actor: userId,
+        type: 'share',
+        post: originalPost._id,
+        message: 'đã chia sẻ bài viết của bạn',
+        metadata: {
+          sharedPostId: sharedPost._id,
+        },
+      });
+
+      const sharedCount = await Post.countDocuments({
+        sharedPost: originalPost._id,
+        ...ACTIVE_POST_FILTER,
+      });
+
+      emitToPostRoom(originalPost._id, 'post:shared', {
+        postId: originalPost._id,
+        sharedPostId: sharedPost._id,
+        sharedBy: userId,
+        sharedCount,
+      });
+
+      emitToUser(userId, 'feed:new-post', {
+        post: sharedPost,
+      });
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.CREATED,
+        message: 'Chia sẻ bài viết thành công',
+        data: sharedPost,
+      };
+    } catch (error) {
+      console.error('Share post error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

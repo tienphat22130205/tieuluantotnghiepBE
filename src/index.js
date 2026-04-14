@@ -1,13 +1,17 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/database');
 const routes = require('./routes');
 const errorHandler = require('./middlewares/errorHandler');
 const seedDefaultAdmin = require('./modules/auth/seed-admin');
+const { startRetentionCleanupJob } = require('./services/retention-cleanup.service');
+const { initSocketServer } = require('./realtime/socket');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Middleware
@@ -36,8 +40,10 @@ app.use((req, res) => {
 const startServer = async () => {
   await connectDB();
   await seedDefaultAdmin();
+  startRetentionCleanupJob();
+  initSocketServer(server);
 
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV}`);
   });
