@@ -13,6 +13,24 @@ const { MESSAGES, HTTP_STATUS, ROLES } = require('../../constants');
 const emailService = require('../../services/email.service');
 
 class AuthService {
+  static async releaseExpiredBanIfNeeded(user, now = new Date()) {
+    if (!user || !user.isBanned || !user.banUntil) {
+      return false;
+    }
+
+    if (user.banUntil > now) {
+      return false;
+    }
+
+    user.isBanned = false;
+    user.isActive = true;
+    user.banUntil = null;
+    user.unbannedAt = now;
+    user.unbannedBy = null;
+    await user.save();
+    return true;
+  }
+
   // Register new user
   static async register(userData) {
     try {
@@ -216,6 +234,26 @@ class AuthService {
           success: false,
           statusCode: HTTP_STATUS.UNAUTHORIZED,
           message: MESSAGES.LOGIN_FAILED,
+        };
+      }
+
+      const now = new Date();
+      await AuthService.releaseExpiredBanIfNeeded(user, now);
+
+      if (user.isBanned) {
+        const banMessage = user.banUntil
+          ? `Tài khoản đã bị khóa đến ${new Date(user.banUntil).toLocaleString('vi-VN')}`
+          : 'Tài khoản đã bị khóa vĩnh viễn';
+
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.UNAUTHORIZED,
+          message: banMessage,
+          error: {
+            banReason: user.banReason || '',
+            banUntil: user.banUntil || null,
+            isPermanent: !user.banUntil,
+          },
         };
       }
 
@@ -507,6 +545,247 @@ class AuthService {
       };
     } catch (error) {
       console.error('Suggest username error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async getAdminUserList(query = {}) {
+    try {
+      await User.updateMany(
+        {
+          isBanned: true,
+          banUntil: { $ne: null, $lte: new Date() },
+        },
+        {
+          $set: {
+            isBanned: false,
+            isActive: true,
+            banUntil: null,
+            unbannedAt: new Date(),
+            unbannedBy: null,
+          },
+        }
+      );
+
+      const q = String(query.q || '').trim();
+      const status = String(query.status || 'all').toLowerCase();
+      const page = Math.max(Number(query.page) || 1, 1);
+      const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
+
+      const filter = {};
+      if (status === 'active') {
+        filter.isBanned = false;
+      }
+      if (status === 'banned') {
+        filter.isBanned = true;
+      }
+
+      if (q) {
+        const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        filter.$or = [
+          { email: regex },
+          { username: regex },
+          { firstName: regex },
+          { lastName: regex },
+        ];
+      }
+
+      const [total, activeUsers, bannedUsers, users] = await Promise.all([
+        User.countDocuments(filter),
+        User.countDocuments({ isBanned: false }),
+        User.countDocuments({ isBanned: true }),
+        User.find(filter)
+          .select('username email firstName lastName role isBanned banReason banUntil isOnline lastSeen isActive')
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit),
+      ]);
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy danh sách người dùng thành công',
+        data: {
+          stats: {
+            totalUsers: activeUsers + bannedUsers,
+            activeUsers,
+            bannedUsers,
+          },
+          items: users.map((user) => ({
+            id: user._id,
+            username: user.username,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+            role: user.role,
+            isActive: user.isActive,
+            isBanned: user.isBanned,
+            banReason: user.banReason || '',
+            banUntil: user.banUntil || null,
+            banType: user.isBanned ? (user.banUntil ? 'temporary' : 'permanent') : null,
+            isOnline: !!user.isOnline,
+            lastSeen: user.lastSeen || null,
+          })),
+          meta: {
+            page,
+            limit,
+            total,
+            hasMore: page * limit < total,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Get admin user list error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async banUser(userId, adminUserId, payload = {}) {
+    try {
+      const reason = String(payload.reason || '').trim();
+      const durationHours = Number(payload.durationHours);
+      const now = new Date();
+
+      if (!reason) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Vui lòng nhập lý do khóa tài khoản',
+        };
+      }
+
+      if (String(userId) === String(adminUserId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Bạn không thể tự khóa tài khoản của chính mình',
+        };
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      if (user.role === ROLES.ADMIN) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.FORBIDDEN,
+          message: 'Không thể khóa tài khoản admin',
+        };
+      }
+
+      let banUntil = null;
+      if (payload.banUntil) {
+        banUntil = new Date(payload.banUntil);
+      } else if (!Number.isNaN(durationHours) && durationHours > 0) {
+        banUntil = new Date(now.getTime() + durationHours * 60 * 60 * 1000);
+      }
+
+      if (banUntil && Number.isNaN(banUntil.getTime())) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Thời gian khóa không hợp lệ',
+        };
+      }
+
+      if (banUntil && banUntil <= now) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Thời gian khóa phải lớn hơn thời điểm hiện tại',
+        };
+      }
+
+      user.isBanned = true;
+      user.isActive = false;
+      user.banReason = reason;
+      user.banUntil = banUntil;
+      user.bannedAt = now;
+      user.bannedBy = adminUserId;
+      user.unbannedAt = null;
+      user.unbannedBy = null;
+      await user.save();
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: banUntil ? 'Khóa tài khoản tạm thời thành công' : 'Khóa tài khoản vĩnh viễn thành công',
+        data: {
+          id: user._id,
+          isBanned: user.isBanned,
+          banReason: user.banReason,
+          banUntil: user.banUntil,
+          banType: user.banUntil ? 'temporary' : 'permanent',
+        },
+      };
+    } catch (error) {
+      console.error('Ban user error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async unbanUser(userId, adminUserId) {
+    try {
+      const user = await User.findById(userId);
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      if (!user.isBanned) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Tài khoản này không ở trạng thái bị khóa',
+        };
+      }
+
+      user.isBanned = false;
+      user.isActive = true;
+      user.banUntil = null;
+      user.unbannedAt = new Date();
+      user.unbannedBy = adminUserId;
+      await user.save();
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Mở khóa tài khoản thành công',
+        data: {
+          id: user._id,
+          isBanned: user.isBanned,
+          banReason: user.banReason || '',
+          banUntil: user.banUntil,
+          unbannedAt: user.unbannedAt,
+        },
+      };
+    } catch (error) {
+      console.error('Unban user error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

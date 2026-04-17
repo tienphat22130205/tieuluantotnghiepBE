@@ -1,6 +1,8 @@
 const { Server } = require('socket.io');
+const mongoose = require('mongoose');
 const { verifyToken } = require('../utils/jwt');
 const User = require('../modules/auth/auth.model');
+const ChatConversation = require('../modules/chat/chat-conversation.model');
 
 let io;
 const activeConnectionsByUser = new Map();
@@ -126,6 +128,38 @@ const initSocketServer = (httpServer) => {
       socket.leave(`post:${postId.toString()}`);
     });
 
+    socket.on('chat:join', async (conversationId) => {
+      if (!conversationId) {
+        return;
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+        return;
+      }
+
+      try {
+        const conversation = await ChatConversation.findOne({
+          _id: conversationId,
+          participants: userId,
+        }).select('_id');
+
+        if (!conversation) {
+          return;
+        }
+
+        socket.join(`chat:${conversationId.toString()}`);
+      } catch (error) {
+        console.error('Socket chat join error:', error);
+      }
+    });
+
+    socket.on('chat:leave', (conversationId) => {
+      if (!conversationId) {
+        return;
+      }
+      socket.leave(`chat:${conversationId.toString()}`);
+    });
+
     socket.on('disconnect', () => {
       const remaining = decreaseConnection(userId);
       if (remaining === 0) {
@@ -155,8 +189,17 @@ const emitToPostRoom = (postId, eventName, payload) => {
   io.to(`post:${postId.toString()}`).emit(eventName, payload);
 };
 
+const emitToChatRoom = (conversationId, eventName, payload) => {
+  if (!io || !conversationId) {
+    return;
+  }
+
+  io.to(`chat:${conversationId.toString()}`).emit(eventName, payload);
+};
+
 module.exports = {
   initSocketServer,
   emitToUser,
   emitToPostRoom,
+  emitToChatRoom,
 };

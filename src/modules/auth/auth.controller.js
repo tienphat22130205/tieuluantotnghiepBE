@@ -178,6 +178,57 @@ class AuthController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  static async getAdminUserList(req, res) {
+    try {
+      const result = await AuthService.getAdminUserList(req.query || {});
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      }
+
+      return sendError(res, result.statusCode, result.message, result.error);
+    } catch (error) {
+      console.error('Get admin user list controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async banUser(req, res) {
+    try {
+      const { userId } = req.params;
+      const adminUserId = req.user.id;
+
+      const result = await AuthService.banUser(userId, adminUserId, req.body || {});
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      }
+
+      return sendError(res, result.statusCode, result.message, result.error);
+    } catch (error) {
+      console.error('Ban user controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async unbanUser(req, res) {
+    try {
+      const { userId } = req.params;
+      const adminUserId = req.user.id;
+
+      const result = await AuthService.unbanUser(userId, adminUserId);
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      }
+
+      return sendError(res, result.statusCode, result.message, result.error);
+    } catch (error) {
+      console.error('Unban user controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = AuthController;

@@ -71,6 +71,40 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    isBanned: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    banReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: [500, 'Lý do khóa không được vượt quá 500 ký tự'],
+    },
+    banUntil: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    bannedAt: {
+      type: Date,
+      default: null,
+    },
+    bannedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    unbannedAt: {
+      type: Date,
+      default: null,
+    },
+    unbannedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     isOnline: {
       type: Boolean,
       default: false,

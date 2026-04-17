@@ -6,6 +6,7 @@ const postRoutes = require('../modules/post/post.routes');
 const aiRoutes = require('../modules/ai/ai.routes');
 const friendRoutes = require('../modules/friend/friend.routes');
 const notificationRoutes = require('../modules/notification/notification.routes');
+const chatRoutes = require('../modules/chat/chat.routes');
 
 const router = express.Router();
 
@@ -17,6 +18,7 @@ router.use('/api/posts', postRoutes);
 router.use('/api/ai', aiRoutes);
 router.use('/api/friends', friendRoutes);
 router.use('/api/notifications', notificationRoutes);
+router.use('/api/chats', chatRoutes);
 
 // Health check
 router.get('/api/health', (req, res) => {
