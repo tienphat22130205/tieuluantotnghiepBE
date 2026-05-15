@@ -160,6 +160,14 @@ const initSocketServer = (httpServer) => {
       socket.leave(`chat:${conversationId.toString()}`);
     });
 
+    socket.on('stats:join', () => {
+      socket.join('stats:dashboard');
+    });
+
+    socket.on('stats:leave', () => {
+      socket.leave('stats:dashboard');
+    });
+
     socket.on('disconnect', () => {
       const remaining = decreaseConnection(userId);
       if (remaining === 0) {
@@ -197,9 +205,22 @@ const emitToChatRoom = (conversationId, eventName, payload) => {
   io.to(`chat:${conversationId.toString()}`).emit(eventName, payload);
 };
 
+const emitStatsUpdate = (eventType, payload = {}) => {
+  if (!io) {
+    return;
+  }
+
+  io.to('stats:dashboard').emit('stats:update', {
+    eventType,
+    timestamp: new Date(),
+    ...payload,
+  });
+};
+
 module.exports = {
   initSocketServer,
   emitToUser,
   emitToPostRoom,
   emitToChatRoom,
+  emitStatsUpdate,
 };

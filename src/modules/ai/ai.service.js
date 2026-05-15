@@ -7,6 +7,122 @@ const ALLOWED_TONES = ['fun', 'chill', 'professional'];
 const ALLOWED_LENGTHS = ['short', 'medium', 'long'];
 
 class AIService {
+  static normalizeIp(ip = '') {
+    const value = String(ip || '').trim();
+    if (!value) {
+      return '';
+    }
+
+    if (value.startsWith('::ffff:')) {
+      return value.replace('::ffff:', '');
+    }
+
+    return value;
+  }
+
+  static isPrivateOrLocalIp(ip = '') {
+    if (!ip) {
+      return true;
+    }
+
+    const normalized = this.normalizeIp(ip).toLowerCase();
+    if (normalized === '::1' || normalized === 'localhost') {
+      return true;
+    }
+
+    if (normalized.startsWith('10.') || normalized.startsWith('192.168.') || normalized.startsWith('127.')) {
+      return true;
+    }
+
+    const match = normalized.match(/^(\d+)\.(\d+)\./);
+    if (!match) {
+      return false;
+    }
+
+    const first = Number(match[1]);
+    const second = Number(match[2]);
+    return first === 172 && second >= 16 && second <= 31;
+  }
+
+  static getClientIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+      const first = String(forwarded).split(',')[0];
+      const ip = this.normalizeIp(first);
+      if (ip) {
+        return ip;
+      }
+    }
+
+    const realIp = this.normalizeIp(req.headers['x-real-ip']);
+    if (realIp) {
+      return realIp;
+    }
+
+    const socketIp = this.normalizeIp(req.socket?.remoteAddress || '');
+    return socketIp || '';
+  }
+
+  static async detectLocationByIp(req) {
+    try {
+      const clientIp = this.getClientIp(req);
+      const geoApiBase = String(process.env.GEO_IP_API_URL || 'https://ipwho.is').trim();
+
+      if (!geoApiBase) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.SERVICE_UNAVAILABLE,
+          message: 'Thiếu cấu hình GEO_IP_API_URL trong .env',
+        };
+      }
+
+      const requestUrl = this.isPrivateOrLocalIp(clientIp)
+        ? geoApiBase
+        : `${geoApiBase.replace(/\/$/, '')}/${encodeURIComponent(clientIp)}`;
+
+      const response = await axios.get(requestUrl, {
+        timeout: Number(process.env.GEO_IP_TIMEOUT_MS || 6000),
+      });
+
+      const geo = response.data || {};
+      if (geo.success === false) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.SERVICE_UNAVAILABLE,
+          message: 'Không thể xác định vị trí tự động',
+          error: geo.message || 'Geo IP service failed',
+        };
+      }
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Xác định vị trí tự động thành công',
+        data: {
+          source: 'ip',
+          ip: geo.ip || clientIp || null,
+          location: {
+            lat: typeof geo.latitude === 'number' ? geo.latitude : null,
+            lng: typeof geo.longitude === 'number' ? geo.longitude : null,
+            city: geo.city || '',
+            region: geo.region || '',
+            country: geo.country || '',
+            countryCode: geo.country_code || '',
+            timezone: geo.timezone?.id || '',
+          },
+          isApproximate: true,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.SERVICE_UNAVAILABLE,
+        message: 'Không thể xác định vị trí tự động',
+        error: error.response?.data?.message || error.message,
+      };
+    }
+  }
+
   static normalizeParams(payload = {}) {
     const language = String(payload.language || 'vi').toLowerCase();
     const tone = String(payload.tone || 'chill').toLowerCase();

@@ -25,6 +25,45 @@ const postSchema = new mongoose.Schema(
         trim: true,
       },
     ],
+    location: {
+      lat: {
+        type: Number,
+        default: null,
+      },
+      lng: {
+        type: Number,
+        default: null,
+      },
+      placeName: {
+        type: String,
+        default: '',
+        trim: true,
+      },
+      city: {
+        type: String,
+        default: '',
+        trim: true,
+      },
+      region: {
+        type: String,
+        default: '',
+        trim: true,
+      },
+      country: {
+        type: String,
+        default: '',
+        trim: true,
+      },
+      source: {
+        type: String,
+        enum: ['gps', 'ip', 'manual', 'unknown'],
+        default: 'unknown',
+      },
+      isApproximate: {
+        type: Boolean,
+        default: false,
+      },
+    },
     visibility: {
       type: String,
       enum: ['public', 'friends', 'private'],
@@ -72,6 +111,17 @@ const postSchema = new mongoose.Schema(
     deletedAt: {
       type: Date,
       default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    deletionReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: [500, 'Lý do xóa không được vượt quá 500 ký tự'],
     },
   },
   {

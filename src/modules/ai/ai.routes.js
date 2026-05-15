@@ -5,6 +5,8 @@ const { uploadPostImagesMemory } = require('../../middlewares/upload');
 
 const router = express.Router();
 
+router.get('/detect-location', authenticate, AIController.detectLocation);
+
 router.post(
   '/generate-content-upload',
   authenticate,

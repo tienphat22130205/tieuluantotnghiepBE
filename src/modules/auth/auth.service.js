@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('./auth.model');
+const UnbanRequest = require('./auth-unban-request.model');
 const { generateToken } = require('../../utils/jwt');
 const {
   validateEmail,
@@ -723,6 +724,21 @@ class AuthService {
       user.unbannedBy = null;
       await user.save();
 
+      const closedRequestsResult = await UnbanRequest.updateMany(
+        {
+          user: user._id,
+          status: 'pending',
+        },
+        {
+          $set: {
+            status: 'rejected',
+            adminNote: 'Yêu cầu trước đó đã được đóng vì tài khoản bị khóa lại.',
+            reviewedBy: adminUserId,
+            reviewedAt: now,
+          },
+        }
+      );
+
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
@@ -733,6 +749,7 @@ class AuthService {
           banReason: user.banReason,
           banUntil: user.banUntil,
           banType: user.banUntil ? 'temporary' : 'permanent',
+          closedPendingUnbanRequests: closedRequestsResult.modifiedCount || 0,
         },
       };
     } catch (error) {
@@ -795,6 +812,286 @@ class AuthService {
     }
   }
 
+  static async createUnbanRequest(payload = {}) {
+    try {
+      const email = String(payload.email || '').trim().toLowerCase();
+      const reason = String(payload.reason || '').trim();
+
+      if (!email || !reason) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Vui lòng cung cấp email và lý do yêu cầu mở khóa',
+        };
+      }
+
+      if (!validateEmail(email)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: MESSAGES.INVALID_EMAIL,
+        };
+      }
+
+      const user = await User.findOne({ email }).select('_id email isBanned banUntil banReason');
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      if (!user.isBanned) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Tài khoản hiện không ở trạng thái bị khóa',
+        };
+      }
+
+      if (user.banUntil) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Tài khoản đang bị khóa tạm thời, vui lòng chờ đến hạn mở khóa',
+        };
+      }
+
+      const existingPending = await UnbanRequest.findOne({ user: user._id, status: 'pending' }).select('_id');
+      if (existingPending) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.CONFLICT,
+          message: 'Bạn đã gửi yêu cầu mở khóa trước đó, vui lòng chờ admin xử lý',
+        };
+      }
+
+      const unbanRequest = await UnbanRequest.create({
+        user: user._id,
+        email: user.email,
+        reason,
+        status: 'pending',
+        banReasonSnapshot: user.banReason || '',
+      });
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.CREATED,
+        message: 'Gửi yêu cầu mở khóa thành công',
+        data: {
+          id: unbanRequest._id,
+          status: unbanRequest.status,
+          createdAt: unbanRequest.createdAt,
+        },
+      };
+    } catch (error) {
+      console.error('Create unban request error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async getMyUnbanRequestHistory(query = {}) {
+    try {
+      const email = String(query.email || '').trim().toLowerCase();
+      const page = Math.max(Number(query.page) || 1, 1);
+      const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 50);
+
+      if (!email) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Vui lòng cung cấp email',
+        };
+      }
+
+      if (!validateEmail(email)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: MESSAGES.INVALID_EMAIL,
+        };
+      }
+
+      const [total, requests] = await Promise.all([
+        UnbanRequest.countDocuments({ email }),
+        UnbanRequest.find({ email })
+          .populate('reviewedBy', 'username firstName lastName email')
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit),
+      ]);
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy lịch sử yêu cầu mở khóa thành công',
+        data: {
+          items: requests,
+          meta: {
+            page,
+            limit,
+            total,
+            hasMore: page * limit < total,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Get my unban request history error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async getUnbanRequests(query = {}) {
+    try {
+      const status = String(query.status || 'pending').toLowerCase();
+      const page = Math.max(Number(query.page) || 1, 1);
+      const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
+
+      const filter = {};
+      if (['pending', 'approved', 'rejected'].includes(status)) {
+        filter.status = status;
+      }
+
+      const [total, requests] = await Promise.all([
+        UnbanRequest.countDocuments(filter),
+        UnbanRequest.find(filter)
+          .populate('user', 'username firstName lastName email isBanned banUntil banReason')
+          .populate('reviewedBy', 'username firstName lastName email')
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit),
+      ]);
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy danh sách yêu cầu mở khóa thành công',
+        data: {
+          items: requests,
+          meta: {
+            page,
+            limit,
+            total,
+            hasMore: page * limit < total,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Get unban requests error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async reviewUnbanRequest(requestId, adminUserId, payload = {}) {
+    try {
+      const decision = String(payload.decision || '').toLowerCase();
+      const adminNote = String(payload.adminNote || '').trim();
+
+      if (!['approve', 'reject'].includes(decision)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'decision không hợp lệ. Chỉ chấp nhận: approve, reject',
+        };
+      }
+
+      const request = await UnbanRequest.findById(requestId);
+      if (!request) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy yêu cầu mở khóa',
+        };
+      }
+
+      if (request.status !== 'pending') {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Yêu cầu này đã được xử lý trước đó',
+        };
+      }
+
+      request.status = decision === 'approve' ? 'approved' : 'rejected';
+      request.adminNote = adminNote;
+      request.reviewedBy = adminUserId;
+      request.reviewedAt = new Date();
+
+      let unbanResult = null;
+      if (decision === 'approve') {
+        const user = await User.findById(request.user);
+        if (user && user.isBanned) {
+          user.isBanned = false;
+          user.isActive = true;
+          user.banUntil = null;
+          user.unbannedAt = new Date();
+          user.unbannedBy = adminUserId;
+          await user.save();
+
+          unbanResult = {
+            userId: user._id,
+            unbannedAt: user.unbannedAt,
+          };
+        }
+
+        await UnbanRequest.updateMany(
+          {
+            user: request.user,
+            status: 'pending',
+            _id: { $ne: request._id },
+          },
+          {
+            $set: {
+              status: 'rejected',
+              adminNote: 'Yêu cầu được đóng vì tài khoản đã được mở khóa bởi một yêu cầu khác.',
+              reviewedBy: adminUserId,
+              reviewedAt: request.reviewedAt,
+            },
+          }
+        );
+      }
+
+      await request.save();
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: decision === 'approve' ? 'Duyệt yêu cầu mở khóa thành công' : 'Từ chối yêu cầu mở khóa thành công',
+        data: {
+          requestId: request._id,
+          status: request.status,
+          reviewedAt: request.reviewedAt,
+          reviewedBy: request.reviewedBy,
+          unbanResult,
+        },
+      };
+    } catch (error) {
+      console.error('Review unban request error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
   // Update role (admin only)
   static async updateUserRole(userId, role) {
     try {
@@ -829,6 +1126,49 @@ class AuthService {
       };
     } catch (error) {
       console.error('Update role error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  // Get role-based redirect URL
+  static async getRoleRedirection(user) {
+    try {
+      if (!user || !user.role) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.UNAUTHORIZED,
+          message: 'Không có thông tin người dùng',
+        };
+      }
+
+      let redirectUrl = '/home'; // Default for user role
+      let roleName = 'Người dùng';
+
+      if (user.role === ROLES.ADMIN) {
+        redirectUrl = '/admin';
+        roleName = 'Quản trị viên';
+      } else if (user.role === ROLES.MODERATOR) {
+        redirectUrl = '/moderator';
+        roleName = 'Kiểm duyệt viên';
+      }
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy trang redirect thành công',
+        data: {
+          role: user.role,
+          roleName: roleName,
+          redirectUrl: redirectUrl,
+        },
+      };
+    } catch (error) {
+      console.error('Get role redirection error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
