@@ -17,8 +17,21 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim().replace(/\/$/, ''))
+  : ['http://localhost:3000', 'http://localhost:5173'];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const normalizedOrigin = origin.trim().replace(/\/$/, '');
+    if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes('*')) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked request from origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));

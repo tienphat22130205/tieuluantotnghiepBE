@@ -81,9 +81,21 @@ const extractToken = (socket) => {
 };
 
 const initSocketServer = (httpServer) => {
+  const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim().replace(/\/$/, ''))
+    : ['http://localhost:3000', 'http://localhost:5173'];
+
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        const normalizedOrigin = origin.trim().replace(/\/$/, '');
+        if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes('*')) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       credentials: true,
     },
   });
