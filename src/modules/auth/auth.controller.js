@@ -305,6 +305,23 @@ class AuthController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  // Check user verification status
+  static async checkStatus(req, res) {
+    try {
+      const { userId } = req.params;
+      const result = await AuthService.checkStatus(userId);
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      } else {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+    } catch (error) {
+      console.error('Check status controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = AuthController;

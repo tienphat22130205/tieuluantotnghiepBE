@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('./auth.model');
 const UnbanRequest = require('./auth-unban-request.model');
 const { generateToken } = require('../../utils/jwt');
@@ -174,14 +175,17 @@ class AuthService {
       newUser.verificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await newUser.save();
 
-      // Send verification email
+      // Send verification email asynchronously without blocking registration
       const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
-      const emailResult = await emailService.sendVerificationEmail(newUser.email, verificationLink);
-
-      if (!emailResult.success) {
-        console.warn('Failed to send verification email:', emailResult.error);
-        // Still return success to user, they can resend email later
-      }
+      emailService.sendVerificationEmail(newUser.email, verificationLink)
+        .then((emailResult) => {
+          if (!emailResult.success) {
+            console.warn('Failed to send verification email:', emailResult.error);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to send verification email error:', error);
+        });
 
       return {
         success: true,
@@ -1169,6 +1173,47 @@ class AuthService {
       };
     } catch (error) {
       console.error('Get role redirection error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  // Check user verification status
+  static async checkStatus(userId) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'User ID không hợp lệ',
+        };
+      }
+
+      const user = await User.findById(userId).select('verified email usernameSelected');
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy người dùng',
+        };
+      }
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy trạng thái người dùng thành công',
+        data: {
+          verified: user.verified,
+          email: user.email,
+          usernameSelected: user.usernameSelected,
+        },
+      };
+    } catch (error) {
+      console.error('Check status service error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

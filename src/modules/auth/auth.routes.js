@@ -9,6 +9,7 @@ const router = express.Router();
 router.post('/register', AuthController.register);
 router.post('/login', AuthController.login);
 router.get('/verify-email', AuthController.verifyEmail);
+router.get('/check-status/:userId', AuthController.checkStatus);
 router.post('/unban-requests', AuthController.createUnbanRequest);
 router.get('/unban-requests/history', AuthController.getMyUnbanRequestHistory);
 
