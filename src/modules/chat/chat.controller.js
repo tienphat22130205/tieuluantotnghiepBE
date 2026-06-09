@@ -61,6 +61,18 @@ class ChatController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  static async toggleMessageReaction(req, res) {
+    try {
+      const result = await ChatService.toggleMessageReaction(req.user.id, req.params.messageId, req.body?.type);
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = ChatController;

@@ -38,6 +38,29 @@ const chatMessageSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    reactions: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true,
+        },
+        type: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
+    type: {
+      type: String,
+      enum: ['text', 'sticker'],
+      default: 'text',
+      index: true,
+    },
+    sticker: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

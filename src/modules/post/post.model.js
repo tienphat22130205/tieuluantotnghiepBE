@@ -56,7 +56,7 @@ const postSchema = new mongoose.Schema(
       },
       source: {
         type: String,
-        enum: ['gps', 'ip', 'manual', 'unknown'],
+        enum: ['gps', 'ip', 'manual', 'unknown', null, ''],
         default: 'unknown',
       },
       isApproximate: {

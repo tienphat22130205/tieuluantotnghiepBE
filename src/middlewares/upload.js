@@ -18,32 +18,6 @@ const allowedImageTypes = String(process.env.ALLOWED_IMAGE_TYPES || 'jpg,jpeg,pn
   .map((item) => item.trim().toLowerCase())
   .filter(Boolean);
 
-const avatarStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, avatarUploadDir);
-  },
-  filename: (req, file, cb) => {
-    const originalExt = path.extname(file.originalname || '').toLowerCase();
-    const fallbackExt = file.mimetype ? `.${String(file.mimetype).split('/').pop()}` : '';
-    const ext = originalExt || fallbackExt || '.jpg';
-    const fileName = `avatar-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, fileName);
-  },
-});
-
-const postStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, postUploadDir);
-  },
-  filename: (req, file, cb) => {
-    const originalExt = path.extname(file.originalname || '').toLowerCase();
-    const fallbackExt = file.mimetype ? `.${String(file.mimetype).split('/').pop()}` : '';
-    const ext = originalExt || fallbackExt || '.jpg';
-    const fileName = `post-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, fileName);
-  },
-});
-
 const fileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname || '').replace('.', '').toLowerCase();
   if (!allowedImageTypes.includes(ext)) {
@@ -54,8 +28,10 @@ const fileFilter = (req, file, cb) => {
 
 const maxFileSize = Number(process.env.MAX_FILE_SIZE || 5 * 1024 * 1024);
 
+const memoryStorage = multer.memoryStorage();
+
 const uploadAvatar = multer({
-  storage: avatarStorage,
+  storage: memoryStorage,
   fileFilter,
   limits: {
     fileSize: maxFileSize,
@@ -63,7 +39,7 @@ const uploadAvatar = multer({
 });
 
 const uploadPostImages = multer({
-  storage: postStorage,
+  storage: memoryStorage,
   fileFilter,
   limits: {
     fileSize: maxFileSize,
@@ -71,7 +47,7 @@ const uploadPostImages = multer({
 });
 
 const uploadPostImagesMemory = multer({
-  storage: multer.memoryStorage(),
+  storage: memoryStorage,
   fileFilter,
   limits: {
     fileSize: maxFileSize,

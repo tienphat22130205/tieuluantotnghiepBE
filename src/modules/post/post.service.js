@@ -4,6 +4,7 @@ const User = require('../auth/auth.model');
 const NotificationService = require('../notification/notification.service');
 const { emitToPostRoom, emitToUser, emitStatsUpdate } = require('../../realtime/socket');
 const { HTTP_STATUS, MESSAGES } = require('../../constants');
+const { saveFile } = require('../../utils/cloudinary');
 
 const ALLOWED_VISIBILITY = ['public', 'friends', 'private'];
 
@@ -79,10 +80,21 @@ const normalizeHashtags = (hashtags) => {
 };
 
 const normalizeLocation = (locationInput) => {
+  const DEFAULT_LOCATION = {
+    lat: null,
+    lng: null,
+    placeName: '',
+    city: '',
+    region: '',
+    country: '',
+    source: 'unknown',
+    isApproximate: false,
+  };
+
   if (locationInput === undefined) {
     return {
       hasLocationField: false,
-      location: null,
+      location: DEFAULT_LOCATION,
       error: null,
     };
   }
@@ -90,7 +102,7 @@ const normalizeLocation = (locationInput) => {
   if (locationInput === null || locationInput === '') {
     return {
       hasLocationField: true,
-      location: null,
+      location: DEFAULT_LOCATION,
       error: null,
     };
   }
@@ -102,7 +114,7 @@ const normalizeLocation = (locationInput) => {
     } catch (error) {
       return {
         hasLocationField: true,
-        location: null,
+        location: DEFAULT_LOCATION,
         error: 'location phải là object hoặc JSON string hợp lệ',
       };
     }
@@ -111,7 +123,7 @@ const normalizeLocation = (locationInput) => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return {
       hasLocationField: true,
-      location: null,
+      location: DEFAULT_LOCATION,
       error: 'location phải là object hợp lệ',
     };
   }
@@ -124,7 +136,7 @@ const normalizeLocation = (locationInput) => {
   if (lat !== null && (!Number.isFinite(lat) || lat < -90 || lat > 90)) {
     return {
       hasLocationField: true,
-      location: null,
+      location: DEFAULT_LOCATION,
       error: 'location.lat không hợp lệ (phải trong khoảng -90..90)',
     };
   }
@@ -132,7 +144,7 @@ const normalizeLocation = (locationInput) => {
   if (lng !== null && (!Number.isFinite(lng) || lng < -180 || lng > 180)) {
     return {
       hasLocationField: true,
-      location: null,
+      location: DEFAULT_LOCATION,
       error: 'location.lng không hợp lệ (phải trong khoảng -180..180)',
     };
   }
@@ -161,7 +173,7 @@ const normalizeLocation = (locationInput) => {
 
   return {
     hasLocationField: true,
-    location: hasMeaningfulData ? location : null,
+    location: hasMeaningfulData ? location : DEFAULT_LOCATION,
     error: null,
   };
 };
@@ -277,10 +289,9 @@ class PostService {
         };
       }
 
-      const images = (files || []).map((file) => {
-        const folder = file.filename.startsWith('avatar-') ? 'avatars' : 'posts';
-        return `/uploads/${folder}/${file.filename}`;
-      });
+      const images = await Promise.all(
+        (files || []).map((file) => saveFile(file, 'posts'))
+      );
 
       if (images.length === 0) {
         return {

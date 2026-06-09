@@ -10,11 +10,12 @@ const MESSAGE_SENDER_FIELDS = 'username firstName lastName avatar';
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-const mapConversation = (conversation) => ({
+const mapConversation = (conversation, unreadCount = 0) => ({
   id: conversation._id,
   type: conversation.type,
   participants: conversation.participants,
   lastMessage: conversation.lastMessage,
+  unreadCount,
   createdAt: conversation.createdAt,
   updatedAt: conversation.updatedAt,
 });
@@ -64,11 +65,18 @@ class ChatService {
         .populate('lastMessage.sender', MESSAGE_SENDER_FIELDS);
     }
 
+    const unreadCount = await ChatMessage.countDocuments({
+      conversation: conversation._id,
+      sender: { $ne: userId },
+      isDeleted: { $ne: true },
+      'readBy.user': { $ne: new mongoose.Types.ObjectId(userId) },
+    });
+
     return {
       success: true,
       statusCode: HTTP_STATUS.OK,
       message: 'Lấy cuộc trò chuyện thành công',
-      data: mapConversation(conversation),
+      data: mapConversation(conversation, unreadCount),
     };
   }
 
@@ -98,12 +106,24 @@ class ChatService {
         .limit(limit),
     ]);
 
+    const mappedConversations = await Promise.all(
+      conversations.map(async (conversation) => {
+        const unreadCount = await ChatMessage.countDocuments({
+          conversation: conversation._id,
+          sender: { $ne: userId },
+          isDeleted: { $ne: true },
+          'readBy.user': { $ne: new mongoose.Types.ObjectId(userId) },
+        });
+        return mapConversation(conversation, unreadCount);
+      })
+    );
+
     return {
       success: true,
       statusCode: HTTP_STATUS.OK,
       message: 'Lấy danh sách cuộc trò chuyện thành công',
       data: {
-        items: conversations.map(mapConversation),
+        items: mappedConversations,
         meta: {
           page,
           limit,
@@ -150,17 +170,25 @@ class ChatService {
       ChatMessage.countDocuments(filter),
       ChatMessage.find(filter)
         .populate('sender', MESSAGE_SENDER_FIELDS)
+        .populate('reactions.user', 'username firstName lastName avatar')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
     ]);
+
+    const unreadCount = await ChatMessage.countDocuments({
+      conversation: conversationId,
+      sender: { $ne: userId },
+      isDeleted: { $ne: true },
+      'readBy.user': { $ne: new mongoose.Types.ObjectId(userId) },
+    });
 
     return {
       success: true,
       statusCode: HTTP_STATUS.OK,
       message: 'Lấy tin nhắn thành công',
       data: {
-        conversation: mapConversation(conversation),
+        conversation: mapConversation(conversation, unreadCount),
         items: messages.reverse(),
         meta: {
           page,
@@ -181,12 +209,23 @@ class ChatService {
       };
     }
 
-    const content = String(payload.content || '').trim();
-    if (!content) {
+    const type = payload.type === 'sticker' ? 'sticker' : 'text';
+    const sticker = payload.type === 'sticker' ? String(payload.stickerUrl || '').trim() : null;
+    const content = type === 'sticker' ? '[Sticker]' : String(payload.content || '').trim();
+
+    if (type === 'text' && !content) {
       return {
         success: false,
         statusCode: HTTP_STATUS.BAD_REQUEST,
         message: 'Nội dung tin nhắn không được để trống',
+      };
+    }
+
+    if (type === 'sticker' && !sticker) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'Sticker URL không được để trống',
       };
     }
 
@@ -207,6 +246,8 @@ class ChatService {
       conversation: conversationId,
       sender: userId,
       content,
+      type,
+      sticker,
       readBy: [
         {
           user: userId,
@@ -215,7 +256,9 @@ class ChatService {
       ],
     });
 
-    message = await ChatMessage.findById(message._id).populate('sender', MESSAGE_SENDER_FIELDS);
+    message = await ChatMessage.findById(message._id)
+      .populate('sender', MESSAGE_SENDER_FIELDS)
+      .populate('reactions.user', 'username firstName lastName avatar');
 
     await ChatConversation.updateOne(
       { _id: conversationId },
@@ -236,16 +279,24 @@ class ChatService {
       message,
     });
 
-    conversation.participants.forEach((participantId) => {
+    for (const participantId of conversation.participants) {
+      const participantUnreadCount = await ChatMessage.countDocuments({
+        conversation: conversationId,
+        sender: { $ne: participantId },
+        isDeleted: { $ne: true },
+        'readBy.user': { $ne: new mongoose.Types.ObjectId(participantId) },
+      });
+
       emitToUser(participantId, 'chat:conversation:updated', {
         conversationId,
+        unreadCount: participantUnreadCount,
         lastMessage: {
           content,
           sender: userId,
           createdAt: message.createdAt,
         },
       });
-    });
+    }
 
     return {
       success: true,
@@ -315,6 +366,90 @@ class ChatService {
       data: {
         conversationId,
       },
+    };
+  }
+
+  static async toggleMessageReaction(userId, messageId, reactionType) {
+    if (!isValidObjectId(userId) || !isValidObjectId(messageId)) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'User ID hoặc Message ID không hợp lệ',
+      };
+    }
+
+    if (!reactionType) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'Loại cảm xúc không được để trống',
+      };
+    }
+
+    const message = await ChatMessage.findOne({ _id: messageId, isDeleted: { $ne: true } });
+    if (!message) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.NOT_FOUND,
+        message: 'Không tìm thấy tin nhắn',
+      };
+    }
+
+    // Verify user is a participant of the conversation
+    const conversation = await ChatConversation.findOne({
+      _id: message.conversation,
+      participants: userId,
+    }).select('_id');
+
+    if (!conversation) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.FORBIDDEN,
+        message: 'Bạn không có quyền tương tác với tin nhắn này',
+      };
+    }
+
+    // Check if user already reacted
+    const existingIndex = message.reactions.findIndex(
+      (r) => r.user.toString() === userId.toString()
+    );
+
+    if (existingIndex > -1) {
+      const existingReaction = message.reactions[existingIndex];
+      if (existingReaction.type === reactionType) {
+        // Toggle OFF if same reaction clicked
+        message.reactions.splice(existingIndex, 1);
+      } else {
+        // Change reaction type if different reaction clicked
+        message.reactions[existingIndex].type = reactionType;
+      }
+    } else {
+      // Add new reaction
+      message.reactions.push({
+        user: userId,
+        type: reactionType,
+      });
+    }
+
+    await message.save();
+
+    // Populate reactions.user details
+    const updatedMessage = await ChatMessage.findById(messageId)
+      .populate('reactions.user', 'username firstName lastName avatar')
+      .select('reactions conversation');
+
+    // Emit real-time event to conversation room
+    emitToChatRoom(message.conversation.toString(), 'chat:message:reaction:updated', {
+      messageId: message._id,
+      conversationId: message.conversation,
+      reactions: updatedMessage.reactions,
+    });
+
+    return {
+      success: true,
+      statusCode: HTTP_STATUS.OK,
+      message: 'Cập nhật cảm xúc thành công',
+      data: updatedMessage.reactions,
     };
   }
 }

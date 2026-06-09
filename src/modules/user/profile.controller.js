@@ -1,5 +1,6 @@
 const ProfileService = require('./profile.service');
 const { sendSuccess, sendError } = require('../../utils/response');
+const { saveFile } = require('../../utils/cloudinary');
 
 class ProfileController {
   static async getMyProfile(req, res) {
@@ -47,7 +48,7 @@ class ProfileController {
         return sendError(res, 400, 'Vui lòng chọn ảnh avatar');
       }
 
-      const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+      const avatarUrl = await saveFile(req.file, 'avatars');
       const result = await ProfileService.updateMyAvatar(req.user.id, avatarUrl, req.body || {});
 
       if (!result.success) {
