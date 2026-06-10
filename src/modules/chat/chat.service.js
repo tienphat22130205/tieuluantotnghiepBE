@@ -171,6 +171,13 @@ class ChatService {
       ChatMessage.find(filter)
         .populate('sender', MESSAGE_SENDER_FIELDS)
         .populate('reactions.user', 'username firstName lastName avatar')
+        .populate({
+          path: 'replyTo',
+          populate: {
+            path: 'sender',
+            select: MESSAGE_SENDER_FIELDS,
+          },
+        })
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -242,12 +249,25 @@ class ChatService {
       };
     }
 
+    const replyTo = payload.replyTo || null;
+    if (replyTo) {
+      const parentMessage = await ChatMessage.findOne({ _id: replyTo, conversation: conversationId });
+      if (!parentMessage) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Tin nhắn phản hồi không tồn tại trong cuộc trò chuyện này',
+        };
+      }
+    }
+
     let message = await ChatMessage.create({
       conversation: conversationId,
       sender: userId,
       content,
       type,
       sticker,
+      replyTo: replyTo || null,
       readBy: [
         {
           user: userId,
@@ -258,7 +278,14 @@ class ChatService {
 
     message = await ChatMessage.findById(message._id)
       .populate('sender', MESSAGE_SENDER_FIELDS)
-      .populate('reactions.user', 'username firstName lastName avatar');
+      .populate('reactions.user', 'username firstName lastName avatar')
+      .populate({
+        path: 'replyTo',
+        populate: {
+          path: 'sender',
+          select: MESSAGE_SENDER_FIELDS,
+        },
+      });
 
     await ChatConversation.updateOne(
       { _id: conversationId },

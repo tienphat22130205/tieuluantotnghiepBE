@@ -62,6 +62,34 @@ class PostController {
     }
   }
 
+  static async getPostById(req, res) {
+    try {
+      const result = await PostService.getPostById(req.user.id, req.params.postId);
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      console.error('Get post by id controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async getComments(req, res) {
+    try {
+      const result = await PostService.getPostComments(req.user.id, req.params.postId);
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      console.error('Get comments controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
   static async getUserPosts(req, res) {
     try {
       const result = await PostService.getUserPostsByViewer(req.user.id, req.params.userId);

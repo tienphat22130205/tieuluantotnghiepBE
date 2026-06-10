@@ -258,6 +258,61 @@ class PostService {
     };
   }
 
+  static async getPostById(viewerId, postId) {
+    try {
+      const accessResult = await this.getViewerAndPostWithAccess(viewerId, postId);
+      if (!accessResult.success) {
+        return accessResult;
+      }
+
+      const populatedPost = await accessResult.post.populate([
+        { path: 'author', select: 'username firstName lastName avatar' },
+        SHARED_POST_POPULATE,
+        COMMENT_USER_POPULATE,
+      ]);
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy chi tiết bài viết thành công',
+        data: populatedPost,
+      };
+    } catch (error) {
+      console.error('Get post by id error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async getPostComments(viewerId, postId) {
+    try {
+      const accessResult = await this.getViewerAndPostWithAccess(viewerId, postId);
+      if (!accessResult.success) {
+        return accessResult;
+      }
+
+      const populatedPost = await accessResult.post.populate(COMMENT_USER_POPULATE);
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy bình luận bài viết thành công',
+        data: populatedPost.comments || [],
+      };
+    } catch (error) {
+      console.error('Get post comments error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
   static async createImagePost(userId, payload = {}, files = [], postType = 'image') {
     try {
       if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -828,9 +883,22 @@ class PostService {
       }
 
       const { post } = accessResult;
+      const replyTo = payload.replyTo || null;
+      if (replyTo) {
+        const parentCommentExists = post.comments.some((c) => c._id.toString() === String(replyTo));
+        if (!parentCommentExists) {
+          return {
+            success: false,
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+            message: 'Bình luận phản hồi không tồn tại trong bài viết này',
+          };
+        }
+      }
+
       post.comments.push({
         user: userId,
         content,
+        replyTo: replyTo || null,
       });
       await post.save();
       await post.populate(COMMENT_USER_POPULATE);

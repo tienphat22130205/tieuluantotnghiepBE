@@ -97,6 +97,10 @@ const postSchema = new mongoose.Schema(
           required: true,
           trim: true,
         },
+        replyTo: {
+          type: mongoose.Schema.Types.ObjectId,
+          default: null,
+        },
         createdAt: {
           type: Date,
           default: Date.now,
