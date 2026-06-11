@@ -24,8 +24,9 @@ const userSchema = new mongoose.Schema(
     },
     phone: {
       type: String,
-      required: [true, 'Vui lòng cung cấp số điện thoại'],
+      required: false,
       unique: true,
+      sparse: true,
       trim: true,
       match: [/^0\d{9}$/, 'Vui lòng cung cấp số điện thoại hợp lệ (10 chữ số, bắt đầu bằng 0)'],
     },
@@ -39,7 +40,7 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, 'Vui lòng cung cấp mật khẩu'],
+      required: false,
       minlength: [6, 'Mật khẩu phải có ít nhất 6 ký tự'],
       select: false, // Don't return password by default
     },

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const User = require('./auth.model');
+const firebaseAdmin = require('../../config/firebase');
 const UnbanRequest = require('./auth-unban-request.model');
 const { generateToken } = require('../../utils/jwt');
 const {
@@ -314,6 +315,142 @@ class AuthService {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
         message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  // Google login via Firebase Auth
+  static async googleLogin(idToken) {
+    try {
+      if (!idToken) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Firebase ID Token không được cung cấp',
+        };
+      }
+
+      // Verify token with Firebase Admin SDK
+      const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken);
+      const { email, name, picture, email_verified } = decodedToken;
+
+      if (!email) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Không tìm thấy địa chỉ email trong Google token',
+        };
+      }
+
+      // Find user
+      let user = await User.findOne({ email: email.toLowerCase() });
+
+      if (user) {
+        // If user is banned
+        const now = new Date();
+        await AuthService.releaseExpiredBanIfNeeded(user, now);
+
+        if (user.isBanned) {
+          const banMessage = user.banUntil
+            ? `Tài khoản đã bị khóa đến ${new Date(user.banUntil).toLocaleString('vi-VN')}`
+            : 'Tài khoản đã bị khóa vĩnh viễn';
+
+          return {
+            success: false,
+            statusCode: HTTP_STATUS.UNAUTHORIZED,
+            message: banMessage,
+            error: {
+              banReason: user.banReason || '',
+              banUntil: user.banUntil || null,
+              isPermanent: !user.banUntil,
+            },
+          };
+        }
+
+        // Check if user is active
+        if (!user.isActive) {
+          return {
+            success: false,
+            statusCode: HTTP_STATUS.UNAUTHORIZED,
+            message: 'Tài khoản này đã bị khóa',
+          };
+        }
+
+        // If user email wasn't verified, verify it since Google is trusted
+        if (!user.verified) {
+          user.verified = true;
+          user.verificationToken = null;
+          user.verificationTokenExpiry = null;
+        }
+
+        // Update avatar if not set
+        if (!user.avatar && picture) {
+          user.avatar = picture;
+        }
+
+        await user.save();
+      } else {
+        // Create new user for Google sign up
+        // Split name into first and last name
+        let firstName = '';
+        let lastName = '';
+        if (name) {
+          const parts = name.trim().split(/\s+/);
+          if (parts.length > 1) {
+            lastName = parts[0];
+            firstName = parts.slice(1).join(' ');
+          } else {
+            firstName = parts[0] || '';
+          }
+        }
+
+        // Suggest a base username from email
+        const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+        let username = emailPrefix;
+        
+        // Ensure username uniqueness
+        let existingUser = await User.findOne({ username });
+        let counter = 1;
+        while (existingUser) {
+          username = `${emailPrefix}${counter}`;
+          existingUser = await User.findOne({ username });
+          counter++;
+        }
+
+        user = new User({
+          email: email.toLowerCase(),
+          firstName,
+          lastName,
+          username,
+          avatar: picture || null,
+          verified: true, // Google accounts are verified
+          usernameSelected: false, // Force them to set custom username on first login if they wish
+          isActive: true,
+          role: ROLES.USER,
+        });
+
+        await user.save();
+      }
+
+      // Generate app JWT
+      const roleToken = generateToken(user._id, user.email, user.role);
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Đăng nhập Google thành công',
+        data: {
+          user: user.toJSON(),
+          token: roleToken,
+        },
+      };
+    } catch (error) {
+      console.error('Google login error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: 'Xác thực Google thất bại hoặc hết hạn',
         error: error.message,
       };
     }

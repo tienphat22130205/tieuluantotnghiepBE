@@ -73,6 +73,23 @@ class ChatController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  static async searchConversationMessages(req, res) {
+    try {
+      const result = await ChatService.searchConversationMessages(
+        req.user.id,
+        req.params.conversationId,
+        req.query.q,
+        req.query || {}
+      );
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+      return sendSuccess(res, result.statusCode, result.message, result.data);
+    } catch (error) {
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = ChatController;

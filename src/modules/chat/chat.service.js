@@ -479,6 +479,79 @@ class ChatService {
       data: updatedMessage.reactions,
     };
   }
+
+  static async searchConversationMessages(userId, conversationId, q, query = {}) {
+    if (!isValidObjectId(userId) || !isValidObjectId(conversationId)) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'User ID hoặc Conversation ID không hợp lệ',
+      };
+    }
+
+    if (!q || !String(q).trim()) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.BAD_REQUEST,
+        message: 'Từ khóa tìm kiếm không được để trống',
+      };
+    }
+
+    const conversation = await ChatConversation.findOne({
+      _id: conversationId,
+      participants: userId,
+    }).select('_id');
+
+    if (!conversation) {
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.NOT_FOUND,
+        message: 'Không tìm thấy cuộc trò chuyện',
+      };
+    }
+
+    const page = Math.max(Number(query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(query.limit) || 30, 1), 100);
+    const searchRegex = new RegExp(String(q).trim(), 'i');
+
+    const filter = {
+      conversation: conversationId,
+      content: { $regex: searchRegex },
+      isDeleted: { $ne: true },
+    };
+
+    const [total, messages] = await Promise.all([
+      ChatMessage.countDocuments(filter),
+      ChatMessage.find(filter)
+        .populate('sender', MESSAGE_SENDER_FIELDS)
+        .populate('reactions.user', 'username firstName lastName avatar')
+        .populate({
+          path: 'replyTo',
+          populate: {
+            path: 'sender',
+            select: MESSAGE_SENDER_FIELDS,
+          },
+        })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
+    ]);
+
+    return {
+      success: true,
+      statusCode: HTTP_STATUS.OK,
+      message: 'Tìm kiếm tin nhắn thành công',
+      data: {
+        items: messages,
+        meta: {
+          page,
+          limit,
+          total,
+          hasMore: page * limit < total,
+        },
+      },
+    };
+  }
 }
 
 module.exports = ChatService;

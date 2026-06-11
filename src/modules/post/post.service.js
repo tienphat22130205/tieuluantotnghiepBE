@@ -1862,6 +1862,109 @@ class PostService {
       };
     }
   }
+
+  static async searchPosts(userId, query = {}) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'User ID không hợp lệ',
+        };
+      }
+
+      const viewer = await User.findById(userId).select('followers following friends');
+      if (!viewer) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      const page = Math.max(Number(query.page) || 1, 1);
+      const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 100);
+      const search = String(query.q || '').trim();
+
+      if (!search) {
+        return {
+          success: true,
+          statusCode: HTTP_STATUS.OK,
+          message: 'Lấy danh sách bài viết thành công',
+          data: {
+            items: [],
+            meta: {
+              page,
+              limit,
+              total: 0,
+              hasMore: false,
+            },
+          },
+        };
+      }
+
+      const friendIds = [...getFriendIdSet(viewer)].map((id) => new mongoose.Types.ObjectId(id));
+      const viewerObjectId = new mongoose.Types.ObjectId(userId);
+
+      const visibilityConditions = [
+        { visibility: 'public' },
+        { author: viewerObjectId },
+      ];
+
+      if (friendIds.length > 0) {
+        visibilityConditions.push({ visibility: 'friends', author: { $in: friendIds } });
+      }
+
+      const searchRegex = new RegExp(search, 'i');
+      const filter = {
+        ...ACTIVE_POST_FILTER,
+        $or: visibilityConditions,
+        $and: [
+          {
+            $or: [
+              { content: searchRegex },
+              { hashtags: searchRegex },
+            ],
+          },
+        ],
+      };
+
+      const [total, posts] = await Promise.all([
+        Post.countDocuments(filter),
+        Post.find(filter)
+          .populate('author', 'username firstName lastName avatar')
+          .populate(SHARED_POST_POPULATE)
+          .populate(COMMENT_USER_POPULATE)
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .lean(),
+      ]);
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Tìm kiếm bài viết thành công',
+        data: {
+          items: posts,
+          meta: {
+            page,
+            limit,
+            total,
+            hasMore: page * limit < total,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Search posts error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
 }
 
 module.exports = PostService;

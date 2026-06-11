@@ -11,6 +11,7 @@ router.post('/status', authenticate, PostController.createMyStatusPost);
 router.get('/feed', authenticate, PostController.getFeedPosts);
 router.get('/me', authenticate, PostController.getMyPosts);
 router.get('/user/:userId', authenticate, PostController.getUserPosts);
+router.get('/search', authenticate, PostController.searchPosts);
 router.get('/:postId', authenticate, PostController.getPostById);
 router.patch('/:postId', authenticate, PostController.updateMyPost);
 router.delete('/:postId', authenticate, PostController.deleteMyPost);

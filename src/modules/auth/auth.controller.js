@@ -59,6 +59,24 @@ class AuthController {
     }
   }
 
+  // Google login
+  static async googleLogin(req, res) {
+    try {
+      const { idToken } = req.body;
+
+      const result = await AuthService.googleLogin(idToken);
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      } else {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+    } catch (error) {
+      console.error('Google login controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
   // Get current user
   static async getCurrentUser(req, res) {
     try {
