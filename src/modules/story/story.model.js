@@ -66,6 +66,17 @@ const storySchema = new mongoose.Schema(
       type: Number,
       default: 5,
     },
+    // CSS filter preset for image/video stories
+    imageFilter: {
+      type: String,
+      default: 'none',
+    },
+    // CSS object-fit for image display
+    objectFit: {
+      type: String,
+      enum: ['cover', 'contain'],
+      default: 'cover',
+    },
     createdAt: {
       type: Date,
       default: Date.now,

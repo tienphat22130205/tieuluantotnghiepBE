@@ -89,6 +89,8 @@ class StoryService {
         spotifyUrl,
         music,
         duration,
+        imageFilter: payload.imageFilter || 'none',
+        objectFit: ['cover', 'contain'].includes(payload.objectFit) ? payload.objectFit : 'cover',
       });
 
       const populated = await story.populate('user', 'username firstName lastName avatar');
