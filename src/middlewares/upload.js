@@ -54,8 +54,26 @@ const uploadPostImagesMemory = multer({
   },
 });
 
+const storyFileFilter = (req, file, cb) => {
+  const isVideo = file.mimetype.startsWith('video/');
+  const isImage = file.mimetype.startsWith('image/');
+  if (!isImage && !isVideo) {
+    return cb(new Error('Chỉ chấp nhận file hình ảnh hoặc video!'), false);
+  }
+  cb(null, true);
+};
+
+const uploadStoryMedia = multer({
+  storage: memoryStorage,
+  fileFilter: storyFileFilter,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit for video support
+  },
+});
+
 module.exports = {
   uploadAvatar,
   uploadPostImages,
   uploadPostImagesMemory,
+  uploadStoryMedia,
 };

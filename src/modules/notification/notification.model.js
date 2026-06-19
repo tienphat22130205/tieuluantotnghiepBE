@@ -21,8 +21,13 @@ const notificationSchema = new mongoose.Schema(
     },
     post: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Post',
+      refPath: 'postModel',
       default: null,
+    },
+    postModel: {
+      type: String,
+      enum: ['Post', 'GroupPost'],
+      default: 'Post',
     },
     friendRequest: {
       type: mongoose.Schema.Types.ObjectId,

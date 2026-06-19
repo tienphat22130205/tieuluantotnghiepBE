@@ -29,6 +29,7 @@ class NotificationService {
       actor,
       type: payload.type,
       post: payload.post || null,
+      postModel: payload.postModel || 'Post',
       friendRequest: payload.friendRequest || null,
       message: payload.message || '',
       metadata: payload.metadata || {},

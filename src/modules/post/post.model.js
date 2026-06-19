@@ -76,8 +76,13 @@ const postSchema = new mongoose.Schema(
     },
     sharedPost: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Post',
+      refPath: 'sharedPostModel',
       default: null,
+    },
+    sharedPostModel: {
+      type: String,
+      enum: ['Post', 'GroupPost'],
+      default: 'Post',
     },
     likes: [
       {

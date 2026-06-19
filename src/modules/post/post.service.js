@@ -235,10 +235,50 @@ class PostService {
     }
 
     if (!post) {
+      // Thử tìm bài viết trong nhóm (GroupPost)
+      const GroupPost = require('../group/group-post.model');
+      const groupPost = await GroupPost.findOne({ _id: postId, isDeleted: { $ne: true } });
+      if (!groupPost) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy bài viết',
+        };
+      }
+
+      // Kiểm tra quyền truy cập nhóm của bài viết
+      const Group = require('../group/group.model');
+      const GroupMember = require('../group/group-member.model');
+      
+      const group = await Group.findOne({ _id: groupPost.group, isDeleted: { $ne: true } });
+      if (!group) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy nhóm của bài viết',
+        };
+      }
+
+      if (group.privacy === 'private') {
+        const membership = await GroupMember.findOne({
+          group: group._id,
+          user: viewerId,
+          status: 'approved',
+        });
+        if (!membership) {
+          return {
+            success: false,
+            statusCode: HTTP_STATUS.FORBIDDEN,
+            message: 'Bạn phải là thành viên của nhóm để truy cập bài viết này',
+          };
+        }
+      }
+
       return {
-        success: false,
-        statusCode: HTTP_STATUS.NOT_FOUND,
-        message: 'Không tìm thấy bài viết',
+        success: true,
+        viewer,
+        post: groupPost,
+        isGroupPost: true,
       };
     }
 
@@ -255,6 +295,7 @@ class PostService {
       success: true,
       viewer,
       post,
+      isGroupPost: false,
     };
   }
 
@@ -265,11 +306,24 @@ class PostService {
         return accessResult;
       }
 
-      const populatedPost = await accessResult.post.populate([
-        { path: 'author', select: 'username firstName lastName avatar' },
-        SHARED_POST_POPULATE,
-        COMMENT_USER_POPULATE,
-      ]);
+      let populatedPost;
+      if (accessResult.isGroupPost) {
+        populatedPost = await accessResult.post.populate([
+          { path: 'author', select: 'username firstName lastName avatar' },
+          { path: 'group', select: 'name avatar privacy' },
+          { path: 'comments.user', select: 'username firstName lastName avatar' },
+        ]);
+        const obj = populatedPost.toObject();
+        obj.postType = 'group';
+        obj.user = obj.author;
+        populatedPost = obj;
+      } else {
+        populatedPost = await accessResult.post.populate([
+          { path: 'author', select: 'username firstName lastName avatar' },
+          SHARED_POST_POPULATE,
+          COMMENT_USER_POPULATE,
+        ]);
+      }
 
       return {
         success: true,
@@ -459,13 +513,55 @@ class PostService {
         .populate('author', 'username firstName lastName avatar')
         .populate(SHARED_POST_POPULATE)
         .populate(COMMENT_USER_POPULATE)
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .limit(100);
+
+      // Fetch public group posts (belonging to groups with privacy='public')
+      const Group = require('../group/group.model');
+      const GroupPost = require('../group/group-post.model');
+
+      const publicGroups = await Group.find({ privacy: 'public', isDeleted: { $ne: true } }).select('_id');
+      const publicGroupIds = publicGroups.map((g) => g._id);
+
+      let groupPosts = [];
+      if (publicGroupIds.length > 0) {
+        groupPosts = await GroupPost.find({
+          group: { $in: publicGroupIds },
+          isDeleted: { $ne: true },
+        })
+          .populate('group', 'name avatar privacy')
+          .populate('author', 'username firstName lastName avatar')
+          .populate('comments.user', 'username firstName lastName avatar')
+          .sort({ createdAt: -1 })
+          .limit(100);
+      }
+
+      const standardObjects = posts.map((p) => {
+        const obj = p.toObject();
+        obj.postType = obj.postType || 'image';
+        return obj;
+      });
+
+      const groupObjects = groupPosts.map((gp) => {
+        const obj = gp.toObject();
+        obj.postType = 'group';
+        obj.user = obj.author; // compat map
+        return obj;
+      });
+
+      const combinedPosts = [...standardObjects, ...groupObjects]
+        .sort((a, b) => {
+          const dateA = new Date(a.createdAt || a.created_at || 0);
+          const dateB = new Date(b.createdAt || b.created_at || 0);
+          return dateB - dateA;
+        })
+        .slice(0, 100);
 
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
         message: 'Lấy bảng tin thành công',
-        data: posts,
+        data: combinedPosts,
       };
     } catch (error) {
       console.error('Get feed posts error:', error);
@@ -1041,6 +1137,7 @@ class PostService {
         visibility,
         postType: 'share',
         sharedPost: originalPost._id,
+        sharedPostModel: accessResult.isGroupPost ? 'GroupPost' : 'Post',
       });
 
       await sharedPost.populate('author', 'username firstName lastName avatar');
@@ -1051,6 +1148,7 @@ class PostService {
         actor: userId,
         type: 'share',
         post: originalPost._id,
+        postModel: accessResult.isGroupPost ? 'GroupPost' : 'Post',
         message: 'đã chia sẻ bài viết của bạn',
         metadata: {
           sharedPostId: sharedPost._id,

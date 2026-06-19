@@ -180,6 +180,17 @@ const initSocketServer = (httpServer) => {
       socket.leave('stats:dashboard');
     });
 
+    // Group room support
+    socket.on('group:join', (groupId) => {
+      if (!groupId) return;
+      socket.join(`group:${groupId.toString()}`);
+    });
+
+    socket.on('group:leave', (groupId) => {
+      if (!groupId) return;
+      socket.leave(`group:${groupId.toString()}`);
+    });
+
     socket.on('disconnect', () => {
       const remaining = decreaseConnection(userId);
       if (remaining === 0) {
@@ -229,10 +240,16 @@ const emitStatsUpdate = (eventType, payload = {}) => {
   });
 };
 
+const emitToGroupRoom = (groupId, eventName, payload) => {
+  if (!io || !groupId) return;
+  io.to(`group:${groupId.toString()}`).emit(eventName, payload);
+};
+
 module.exports = {
   initSocketServer,
   emitToUser,
   emitToPostRoom,
   emitToChatRoom,
   emitStatsUpdate,
+  emitToGroupRoom,
 };
