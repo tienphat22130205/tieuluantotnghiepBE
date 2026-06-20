@@ -9,6 +9,7 @@ router.post('/', authenticate, uploadStoryMedia.single('file'), StoryController.
 router.get('/', authenticate, StoryController.getFeedStories);
 router.get('/archive', authenticate, StoryController.getArchivedStories);
 router.post('/:storyId/view', authenticate, StoryController.markStoryViewed);
+router.post('/:storyId/react', authenticate, StoryController.reactToStory);
 router.delete('/:storyId', authenticate, StoryController.deleteStory);
 
 module.exports = router;

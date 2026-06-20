@@ -49,6 +49,16 @@ class StoryController {
     }
   }
 
+  static async reactToStory(req, res) {
+    try {
+      const result = await StoryService.addReaction(req.user.id, req.params.storyId, req.body.reaction);
+      return StoryController.handleResult(res, result);
+    } catch (error) {
+      console.error('React to story controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
   static async deleteStory(req, res) {
     try {
       const result = await StoryService.deleteStory(req.user.id, req.params.storyId);

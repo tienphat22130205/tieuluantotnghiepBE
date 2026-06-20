@@ -50,6 +50,10 @@ const storySchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: 'User',
         },
+        reaction: {
+          type: String,
+          default: '',
+        },
         viewedAt: {
           type: Date,
           default: Date.now,

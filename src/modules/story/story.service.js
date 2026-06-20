@@ -148,6 +148,7 @@ class StoryService {
         isDeleted: { $ne: true },
       })
         .populate('user', 'username firstName lastName avatar')
+        .populate('viewers.user', 'username firstName lastName avatar')
         .sort({ createdAt: -1 });
 
       return {
@@ -178,6 +179,7 @@ class StoryService {
         isDeleted: { $ne: true },
       })
         .populate('user', 'username firstName lastName avatar')
+        .populate('viewers.user', 'username firstName lastName avatar')
         .sort({ createdAt: -1 });
 
       return {
@@ -227,6 +229,16 @@ class StoryService {
           viewedAt: new Date(),
         });
         await story.save();
+
+        // Populate details of the viewers to send via socket
+        const updatedStory = await Story.findById(storyId)
+          .populate('viewers.user', 'username firstName lastName avatar');
+
+        // Emit to story creator so they can see the viewer list update in real-time
+        emitToUser(story.user.toString(), 'story:viewed', {
+          storyId,
+          viewers: updatedStory.viewers,
+        });
       }
 
       return {
@@ -236,6 +248,69 @@ class StoryService {
       };
     } catch (error) {
       console.error('Mark story as viewed service error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async addReaction(userId, storyId, reaction) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(storyId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Story ID không hợp lệ',
+        };
+      }
+
+      const story = await Story.findOne({ _id: storyId, isDeleted: { $ne: true } });
+      if (!story) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy tin',
+        };
+      }
+
+      // Find if user is already in viewers list
+      const viewerIndex = story.viewers.findIndex(
+        (viewer) => viewer.user.toString() === userId.toString()
+      );
+
+      if (viewerIndex > -1) {
+        story.viewers[viewerIndex].reaction = reaction || '';
+      } else {
+        story.viewers.push({
+          user: userId,
+          reaction: reaction || '',
+          viewedAt: new Date(),
+        });
+      }
+
+      await story.save();
+
+      // Populate details of the viewers to send via socket
+      const updatedStory = await Story.findById(storyId)
+        .populate('viewers.user', 'username firstName lastName avatar');
+
+      // Emit to story creator so they can see the viewer/reaction list update in real-time
+      emitToUser(story.user.toString(), 'story:viewed', {
+        storyId,
+        viewers: updatedStory.viewers,
+      });
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Đã bày tỏ cảm xúc với tin',
+        data: updatedStory.viewers,
+      };
+    } catch (error) {
+      console.error('Add story reaction service error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

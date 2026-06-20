@@ -66,6 +66,29 @@ const chatMessageSchema = new mongoose.Schema(
       ref: 'ChatMessage',
       default: null,
     },
+    storyReply: {
+      storyId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Story',
+        default: null,
+      },
+      mediaUrl: {
+        type: String,
+        default: '',
+      },
+      mediaType: {
+        type: String,
+        default: '',
+      },
+      textContent: {
+        type: String,
+        default: '',
+      },
+      bgColor: {
+        type: String,
+        default: '',
+      },
+    },
   },
   {
     timestamps: true,

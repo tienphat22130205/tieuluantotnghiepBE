@@ -268,6 +268,7 @@ class ChatService {
       type,
       sticker,
       replyTo: replyTo || null,
+      storyReply: payload.storyReply || null,
       readBy: [
         {
           user: userId,
