@@ -39,6 +39,14 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 // Routes
 app.use('/', routes);
 
+// PeerJS Server
+// const { ExpressPeerServer } = require('peer');
+// const peerServer = ExpressPeerServer(server, {
+//   debug: true,
+//   path: '/peerjs'
+// });
+// app.use('/peerjs', peerServer);
+
 // Error handling middleware
 app.use(errorHandler);
 

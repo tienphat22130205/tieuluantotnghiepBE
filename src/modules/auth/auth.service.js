@@ -332,7 +332,18 @@ class AuthService {
       }
 
       // Verify token with Firebase Admin SDK
-      const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken);
+      let decodedToken;
+      try {
+        decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken);
+      } catch (tokenErr) {
+        console.error('googleLogin verifyIdToken error:', tokenErr.message);
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.UNAUTHORIZED,
+          message: `Xác thực Firebase Token thất bại: ${tokenErr.message || 'Token không hợp lệ hoặc Firebase Admin chưa được cấu hình trên server.'}`,
+        };
+      }
+
       const { email, name, picture, email_verified } = decodedToken;
 
       if (!email) {

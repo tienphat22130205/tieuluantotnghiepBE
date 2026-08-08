@@ -191,6 +191,32 @@ const initSocketServer = (httpServer) => {
       socket.leave(`group:${groupId.toString()}`);
     });
 
+    // Call signaling support
+    socket.on('call:request', ({ targetUserId, callerId, callerName, callerAvatar, isVideo }) => {
+      emitToUser(targetUserId, 'call:incoming', {
+        callerId,
+        callerName,
+        callerAvatar,
+        isVideo
+      });
+    });
+
+    socket.on('call:accept', ({ callerId, calleeId }) => {
+      emitToUser(callerId, 'call:accepted', { calleeId });
+    });
+
+    socket.on('call:reject', ({ callerId, reason }) => {
+      emitToUser(callerId, 'call:rejected', { reason });
+    });
+
+    socket.on('call:busy', ({ callerId }) => {
+      emitToUser(callerId, 'call:busying', { calleeId: userId });
+    });
+
+    socket.on('call:end', ({ targetUserId, senderId }) => {
+      emitToUser(targetUserId, 'call:ended', { senderId });
+    });
+
     socket.on('disconnect', () => {
       const remaining = decreaseConnection(userId);
       if (remaining === 0) {
