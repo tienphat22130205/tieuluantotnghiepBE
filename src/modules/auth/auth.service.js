@@ -441,7 +441,18 @@ class AuthService {
           role: ROLES.USER,
         });
 
-        await user.save();
+        try {
+          await user.save();
+        } catch (saveErr) {
+          if (saveErr.code === 11000 && (String(saveErr.message).includes('phone') || String(saveErr.keyPattern?.phone).length > 0)) {
+            console.warn('Handling legacy phone_1 index collision in MongoDB...');
+            await User.collection.dropIndex('phone_1').catch(() => {});
+            await User.syncIndexes().catch(() => {});
+            await user.save();
+          } else {
+            throw saveErr;
+          }
+        }
       }
 
       // Generate app JWT

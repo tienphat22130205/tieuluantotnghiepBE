@@ -35,6 +35,17 @@ const connectDB = async () => {
     });
 
     console.log(`MongoDB connected: ${conn.connection.host}`);
+
+    // Fix legacy non-sparse phone_1 index on MongoDB Atlas if present
+    try {
+      const User = require('../modules/auth/auth.model');
+      User.collection.dropIndex('phone_1')
+        .then(() => User.syncIndexes())
+        .catch(() => {});
+    } catch {
+      // Ignore index sync errors
+    }
+
     return conn;
   } catch (error) {
     console.error(`Error connecting to MongoDB: ${error.message}`);
