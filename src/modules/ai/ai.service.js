@@ -219,7 +219,7 @@ class AIService {
 
       const response = await axios.post(aiUrl, formData, {
         headers,
-        timeout: Number(process.env.AI_API_TIMEOUT_MS || 45000),
+        timeout: Number(process.env.AI_API_TIMEOUT_MS || 90000),
         maxBodyLength: Infinity,
       });
 
