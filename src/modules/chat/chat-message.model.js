@@ -53,7 +53,7 @@ const chatMessageSchema = new mongoose.Schema(
     ],
     type: {
       type: String,
-      enum: ['text', 'sticker'],
+      enum: ['text', 'sticker', 'call'],
       default: 'text',
       index: true,
     },

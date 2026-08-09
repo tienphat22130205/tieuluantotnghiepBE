@@ -217,6 +217,19 @@ const initSocketServer = (httpServer) => {
       emitToUser(targetUserId, 'call:ended', { senderId });
     });
 
+    // Native WebRTC Signaling Support
+    socket.on('webrtc:offer', ({ targetUserId, offer }) => {
+      emitToUser(targetUserId, 'webrtc:offer', { senderId: userId, offer });
+    });
+
+    socket.on('webrtc:answer', ({ targetUserId, answer }) => {
+      emitToUser(targetUserId, 'webrtc:answer', { senderId: userId, answer });
+    });
+
+    socket.on('webrtc:ice-candidate', ({ targetUserId, candidate }) => {
+      emitToUser(targetUserId, 'webrtc:ice-candidate', { senderId: userId, candidate });
+    });
+
     socket.on('disconnect', () => {
       const remaining = decreaseConnection(userId);
       if (remaining === 0) {
