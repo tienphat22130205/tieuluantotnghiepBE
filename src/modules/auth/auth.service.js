@@ -354,7 +354,7 @@ class AuthService {
         };
       }
 
-      // Find user
+      let isNewUser = false;
       let user = await User.findOne({ email: email.toLowerCase() });
 
       if (user) {
@@ -402,6 +402,7 @@ class AuthService {
 
         await user.save();
       } else {
+        isNewUser = true;
         // Create new user for Google sign up
         // Split name into first and last name
         let firstName = '';
@@ -436,7 +437,7 @@ class AuthService {
           username,
           avatar: picture || null,
           verified: true, // Google accounts are verified
-          usernameSelected: false, // Force them to set custom username on first login if they wish
+          usernameSelected: true, // Google already assigned valid name and username
           isActive: true,
           role: ROLES.USER,
         });
@@ -461,10 +462,11 @@ class AuthService {
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
-        message: 'Đăng nhập Google thành công',
+        message: isNewUser ? 'Tài khoản Google mới đã được tạo thành công' : 'Đăng nhập Google thành công',
         data: {
           user: user.toJSON(),
           token: roleToken,
+          isNewUser,
         },
       };
     } catch (error) {
