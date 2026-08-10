@@ -192,8 +192,7 @@ class AIService {
         };
       }
 
-      const rawAiPath = String(process.env.AI_GENERATE_UPLOAD_PATH || '/generate-content-upload').trim();
-      const aiPath = rawAiPath.replace(/^\/api\//, '/');
+      const aiPath = String(process.env.AI_GENERATE_UPLOAD_PATH || '/api/generate-content-upload').trim();
       const aiUrl = `${aiBaseUrl.replace(/\/$/, '')}${aiPath.startsWith('/') ? aiPath : `/${aiPath}`}`;
 
       const formData = new FormData();
