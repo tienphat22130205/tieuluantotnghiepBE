@@ -139,6 +139,14 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpiry: {
+      type: Date,
+      default: null,
+    },
     followers: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -189,6 +197,8 @@ userSchema.methods.toJSON = function () {
   delete obj.password;
   delete obj.verificationToken;
   delete obj.verificationTokenExpiry;
+  delete obj.resetPasswordToken;
+  delete obj.resetPasswordExpiry;
   return obj;
 };
 

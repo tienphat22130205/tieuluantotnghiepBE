@@ -240,6 +240,122 @@ class AIService {
       };
     }
   }
+
+  static async moderateContent({ text = '', files = [] } = {}) {
+    try {
+      const aiBaseUrl = String(process.env.AI_API_BASE_URL || 'http://localhost:8000').trim();
+      const aiPath = String(process.env.AI_MODERATE_PATH || '/api/moderate-content').trim();
+      const aiUrl = `${aiBaseUrl.replace(/\/$/, '')}${aiPath.startsWith('/') ? aiPath : `/${aiPath}`}`;
+
+      const formData = new FormData();
+      formData.append('text', String(text || ''));
+
+      if (Array.isArray(files) && files.length > 0) {
+        files.forEach((file, index) => {
+          if (file && file.buffer) {
+            formData.append('images', file.buffer, {
+              filename: file.originalname || `image-${index + 1}.jpg`,
+              contentType: file.mimetype || 'application/octet-stream',
+            });
+          }
+        });
+      }
+
+      const headers = {
+        ...formData.getHeaders(),
+      };
+
+      if (process.env.AI_API_KEY) {
+        headers.Authorization = `Bearer ${process.env.AI_API_KEY}`;
+      }
+
+      const response = await axios.post(aiUrl, formData, {
+        headers,
+        timeout: Number(process.env.AI_MODERATE_TIMEOUT_MS || 15000),
+        maxBodyLength: Infinity,
+      });
+
+      const resData = response.data?.data || response.data || {};
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        decision: resData.decision || 'APPROVED',
+        isAppropriate: resData.isAppropriate ?? true,
+        safetyScore: resData.safetyScore ?? 1.0,
+        violationCategories: resData.violationCategories || [],
+        toxicKeywordsFound: resData.toxicKeywordsFound || [],
+        reasons: resData.reasons || [],
+        suggestedAction: resData.suggestedAction || 'ALLOW',
+        userFriendlyMessage: resData.userFriendlyMessage || '',
+        data: resData,
+      };
+    } catch (error) {
+      console.warn('AI Content Moderation call failed or timed out:', error.message);
+      // Soft-fail: if AI service is unreachable, allow content to prevent blocking user actions
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        decision: 'APPROVED',
+        isAppropriate: true,
+        safetyScore: 1.0,
+        violationCategories: [],
+        toxicKeywordsFound: [],
+        reasons: [],
+        suggestedAction: 'ALLOW',
+        userFriendlyMessage: '',
+      };
+    }
+  }
+
+  static async performSearchAI(query = '', posts = [], lang = 'vi') {
+    try {
+      const aiBaseUrl = String(process.env.AI_API_BASE_URL || process.env.AI_SERVICE_URL || 'http://localhost:8000').trim().replace(/\/+$/, '');
+      const aiUrl = `${aiBaseUrl}/api/search/ai`;
+
+      console.log(`[AI Search] Calling AI Service at ${aiUrl} for query: "${query}" with ${posts.length} candidate posts...`);
+
+      const payload = {
+        query: String(query || '').trim(),
+        posts: (posts || []).slice(0, 20).map((p) => ({
+          id: String(p._id || p.id || ''),
+          content: String(p.content || ''),
+          author_name: p.author ? `${p.author.firstName || ''} ${p.author.lastName || ''}`.trim() || p.author.username || '' : '',
+          hashtags: Array.isArray(p.hashtags) ? p.hashtags : [],
+          images: Array.isArray(p.images) ? p.images.filter(Boolean).slice(0, 2) : [],
+          created_at: p.createdAt ? String(p.createdAt) : '',
+        })),
+        lang: lang === 'en' ? 'en' : 'vi',
+      };
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (process.env.AI_API_KEY) {
+        headers.Authorization = `Bearer ${process.env.AI_API_KEY}`;
+      }
+
+      const response = await axios.post(aiUrl, payload, {
+        headers,
+        timeout: Number(process.env.AI_SEARCH_TIMEOUT_MS || 35000),
+      });
+
+      const resData = response.data?.data || response.data || {};
+      return {
+        success: true,
+        overview: resData.overview || '',
+        key_insights: resData.key_insights || [],
+        suggested_keywords: resData.suggested_keywords || [],
+        ranked_post_ids: resData.ranked_post_ids || [],
+      };
+    } catch (error) {
+      console.warn('AI Search analysis call failed or timed out:', error.message);
+      return {
+        success: false,
+        overview: '',
+        key_insights: [],
+        suggested_keywords: [],
+        ranked_post_ids: [],
+      };
+    }
+  }
 }
 
 module.exports = AIService;

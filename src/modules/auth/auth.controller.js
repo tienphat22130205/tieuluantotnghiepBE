@@ -1,6 +1,16 @@
 const AuthService = require('./auth.service');
 const { sendSuccess, sendError } = require('../../utils/response');
 
+const getClientOrigin = (req) => {
+  try {
+    const headerOrigin = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : '');
+    if (headerOrigin && !headerOrigin.includes('undefined') && !headerOrigin.includes('null')) {
+      return headerOrigin.replace(/\/$/, '');
+    }
+  } catch {}
+  return (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+};
+
 class AuthController {
   // Register
   static async register(req, res) {
@@ -16,6 +26,8 @@ class AuthController {
         location,
       } = req.body;
 
+      const clientOrigin = getClientOrigin(req);
+
       const result = await AuthService.register({
         email,
         phone,
@@ -25,6 +37,7 @@ class AuthController {
         firstName,
         lastName,
         location,
+        clientOrigin,
       });
 
       if (result.success) {
@@ -55,6 +68,37 @@ class AuthController {
       }
     } catch (error) {
       console.error('Login controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  // Forgot password
+  static async forgotPassword(req, res) {
+    try {
+      const { email } = req.body;
+      const clientOrigin = getClientOrigin(req);
+      const result = await AuthService.forgotPassword(email, clientOrigin);
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      }
+      return sendError(res, result.statusCode, result.message, result.error);
+    } catch (error) {
+      console.error('Forgot password controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  // Reset password
+  static async resetPassword(req, res) {
+    try {
+      const { token, email, newPassword, confirmPassword } = req.body;
+      const result = await AuthService.resetPassword({ token, email, newPassword, confirmPassword });
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      }
+      return sendError(res, result.statusCode, result.message, result.error);
+    } catch (error) {
+      console.error('Reset password controller error:', error);
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }

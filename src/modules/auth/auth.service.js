@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const User = require('./auth.model');
@@ -46,6 +47,7 @@ class AuthService {
         firstName,
         lastName,
         location,
+        clientOrigin,
       } = userData;
 
       // Validation
@@ -177,7 +179,8 @@ class AuthService {
       await newUser.save();
 
       // Send verification email asynchronously without blocking registration
-      const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
+      const clientUrl = (clientOrigin || process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+      const verificationLink = `${clientUrl}/verify-email?token=${verificationToken}`;
       emailService.sendVerificationEmail(newUser.email, verificationLink)
         .then((emailResult) => {
           if (!emailResult.success) {
@@ -1375,6 +1378,144 @@ class AuthService {
       };
     } catch (error) {
       console.error('Check status service error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Request password reset link by email
+   */
+  static async forgotPassword(email, clientOrigin) {
+    try {
+      if (!email || !email.trim()) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Vui lòng cung cấp địa chỉ email.',
+        };
+      }
+
+      const cleanEmail = email.toLowerCase().trim();
+      const user = await User.findOne({ email: cleanEmail });
+
+      if (!user) {
+        // Return a generic friendly response for privacy
+        return {
+          success: true,
+          statusCode: HTTP_STATUS.OK,
+          message: 'Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi đến hòm thư của bạn.',
+        };
+      }
+
+      if (user.isBanned) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.FORBIDDEN,
+          message: 'Tài khoản của bạn đang bị khóa. Không thể đặt lại mật khẩu.',
+        };
+      }
+
+      // Generate random 32-byte reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      user.resetPasswordToken = resetToken;
+      user.resetPasswordExpiry = new Date(Date.now() + 60 * 60 * 1000); // Valid for 1 hour
+      await user.save({ validateBeforeSave: false });
+
+      // Generate reset URL dynamically from clientOrigin or env
+      const clientUrl = (clientOrigin || process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+      const resetLink = `${clientUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
+
+      emailService.sendResetPasswordEmail(user.email, resetLink)
+        .then((res) => {
+          if (!res.success) {
+            console.warn('Failed to send reset password email:', res.error);
+          }
+        })
+        .catch((err) => {
+          console.error('Send reset password email error:', err);
+        });
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Hướng dẫn đặt lại mật khẩu đã được gửi đến email của bạn. Vui lòng kiểm tra hộp thư (bao gồm cả thư rác / spam).',
+      };
+    } catch (error) {
+      console.error('Forgot password service error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Reset password with token
+   */
+  static async resetPassword({ token, email, newPassword, confirmPassword }) {
+    try {
+      if (!token || !token.trim()) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Mã xác thực đặt lại mật khẩu không hợp lệ hoặc bị thiếu.',
+        };
+      }
+
+      if (!newPassword || newPassword.length < 6) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Mật khẩu mới phải có ít nhất 6 ký tự.',
+        };
+      }
+
+      if (confirmPassword && newPassword !== confirmPassword) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Mật khẩu xác nhận không khớp với mật khẩu mới.',
+        };
+      }
+
+      const query = {
+        resetPasswordToken: token.trim(),
+        resetPasswordExpiry: { $gt: new Date() },
+      };
+
+      if (email && email.trim()) {
+        query.email = email.toLowerCase().trim();
+      }
+
+      const user = await User.findOne(query);
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Liên kết đặt lại mật khẩu đã hết hạn hoặc không hợp lệ. Vui lòng gửi lại yêu cầu mới.',
+        };
+      }
+
+      // Update password & clear token
+      user.password = newPassword;
+      user.resetPasswordToken = null;
+      user.resetPasswordExpiry = null;
+      await user.save();
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới ngay bây giờ.',
+      };
+    } catch (error) {
+      console.error('Reset password service error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

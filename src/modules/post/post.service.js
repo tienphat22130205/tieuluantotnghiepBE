@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Post = require('./post.model');
 const User = require('../auth/auth.model');
 const NotificationService = require('../notification/notification.service');
+const AIService = require('../ai/ai.service');
 const { emitToPostRoom, emitToUser, emitStatsUpdate } = require('../../realtime/socket');
 const { HTTP_STATUS, MESSAGES } = require('../../constants');
 const { saveFile } = require('../../utils/cloudinary');
@@ -398,6 +399,22 @@ class PostService {
         };
       }
 
+      // AI Content & Image Moderation Check
+      const moderation = await AIService.moderateContent({ text: content, files: files || [] });
+      if (moderation && moderation.decision === 'REJECTED') {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: moderation.userFriendlyMessage || 'Nội dung hoặc hình ảnh chứa yếu tố không phù hợp với tiêu chuẩn cộng đồng.',
+          error: moderation.reasons?.join('; ') || 'Vi phạm tiêu chuẩn cộng đồng Zivo',
+          data: {
+            violationCategories: moderation.violationCategories,
+            toxicKeywordsFound: moderation.toxicKeywordsFound,
+            reasons: moderation.reasons,
+          },
+        };
+      }
+
       const images = await Promise.all(
         (files || []).map((file) => saveFile(file, 'posts'))
       );
@@ -672,6 +689,22 @@ class PostService {
           success: false,
           statusCode: HTTP_STATUS.BAD_REQUEST,
           message: 'Chế độ hiển thị không hợp lệ. Chỉ chấp nhận: public, friends, private',
+        };
+      }
+
+      // AI Content & Anti-Toxic Moderation Check
+      const moderation = await AIService.moderateContent({ text: content });
+      if (moderation && moderation.decision === 'REJECTED') {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: moderation.userFriendlyMessage || 'Nội dung chứa từ ngữ hoặc thông tin không phù hợp với tiêu chuẩn cộng đồng.',
+          error: moderation.reasons?.join('; ') || 'Vi phạm tiêu chuẩn cộng đồng Zivo',
+          data: {
+            violationCategories: moderation.violationCategories,
+            toxicKeywordsFound: moderation.toxicKeywordsFound,
+            reasons: moderation.reasons,
+          },
         };
       }
 
@@ -975,6 +1008,22 @@ class PostService {
           success: false,
           statusCode: HTTP_STATUS.BAD_REQUEST,
           message: 'Nội dung comment không được để trống',
+        };
+      }
+
+      // AI Anti-Toxic Moderation Check for Comments
+      const moderation = await AIService.moderateContent({ text: content });
+      if (moderation && moderation.decision === 'REJECTED') {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: moderation.userFriendlyMessage || 'Bình luận chứa từ ngữ không phù hợp với tiêu chuẩn cộng đồng.',
+          error: moderation.reasons?.join('; ') || 'Vi phạm tiêu chuẩn cộng đồng Zivo',
+          data: {
+            violationCategories: moderation.violationCategories,
+            toxicKeywordsFound: moderation.toxicKeywordsFound,
+            reasons: moderation.reasons,
+          },
         };
       }
 
@@ -2014,7 +2063,7 @@ class PostService {
       }
 
       const searchRegex = new RegExp(search, 'i');
-      const filter = {
+      const directFilter = {
         ...ACTIVE_POST_FILTER,
         $or: visibilityConditions,
         $and: [
@@ -2027,29 +2076,99 @@ class PostService {
         ],
       };
 
-      const [total, posts] = await Promise.all([
-        Post.countDocuments(filter),
-        Post.find(filter)
+      const candidatePoolFilter = {
+        ...ACTIVE_POST_FILTER,
+        $or: visibilityConditions,
+      };
+
+      const [directPosts, candidatePool] = await Promise.all([
+        Post.find(directFilter)
           .populate('author', 'username firstName lastName avatar')
           .populate(SHARED_POST_POPULATE)
           .populate(COMMENT_USER_POPULATE)
           .sort({ createdAt: -1 })
-          .skip((page - 1) * limit)
           .limit(limit)
           .lean(),
+        Post.find(candidatePoolFilter)
+          .populate('author', 'username firstName lastName avatar')
+          .populate(SHARED_POST_POPULATE)
+          .populate(COMMENT_USER_POPULATE)
+          .sort({ createdAt: -1 })
+          .limit(40)
+          .lean(),
       ]);
+
+      // Combine direct matches and candidate pool (deduplicated by _id)
+      const postMap = new Map();
+      directPosts.forEach((p) => postMap.set(String(p._id), p));
+      candidatePool.forEach((p) => {
+        if (!postMap.has(String(p._id))) {
+          postMap.set(String(p._id), p);
+        }
+      });
+      const allCandidates = Array.from(postMap.values());
+
+      // Call AI to generate AI Overview and semantic ranking
+      let aiOverview = '';
+      let keyInsights = [];
+      let suggestedKeywords = [];
+      let finalPosts = directPosts;
+
+      if (search && search.trim().length >= 2) {
+        try {
+          const lang = query.lang || 'vi';
+          const aiResult = await AIService.performSearchAI(search, allCandidates, lang);
+          if (aiResult.success) {
+            aiOverview = aiResult.overview;
+            keyInsights = aiResult.key_insights;
+            suggestedKeywords = aiResult.suggested_keywords;
+
+            // Re-rank & filter posts by AI semantic relevance
+            if (Array.isArray(aiResult.ranked_post_ids) && aiResult.ranked_post_ids.length > 0) {
+              const matchedFromAI = [];
+              const matchedIdSet = new Set();
+
+              // Pick posts in exact order specified by AI
+              for (const id of aiResult.ranked_post_ids) {
+                const found = postMap.get(String(id));
+                if (found) {
+                  matchedFromAI.push(found);
+                  matchedIdSet.add(String(id));
+                }
+              }
+
+              // Append remaining direct regex matches if any missed
+              for (const dp of directPosts) {
+                if (!matchedIdSet.has(String(dp._id))) {
+                  matchedFromAI.push(dp);
+                  matchedIdSet.add(String(dp._id));
+                }
+              }
+
+              if (matchedFromAI.length > 0) {
+                finalPosts = matchedFromAI.slice(0, limit);
+              }
+            }
+          }
+        } catch (aiErr) {
+          console.warn('AI search post-processing error:', aiErr.message);
+        }
+      }
 
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
         message: 'Tìm kiếm bài viết thành công',
         data: {
-          items: posts,
+          items: finalPosts,
+          aiOverview,
+          keyInsights,
+          suggestedKeywords,
           meta: {
             page,
             limit,
-            total,
-            hasMore: page * limit < total,
+            total: finalPosts.length,
+            hasMore: false,
           },
         },
       };

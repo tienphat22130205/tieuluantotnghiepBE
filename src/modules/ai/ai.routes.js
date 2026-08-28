@@ -14,4 +14,11 @@ router.post(
   AIController.generatePostContentUpload
 );
 
+router.post(
+  '/moderate',
+  authenticate,
+  uploadPostImagesMemory.array('images', 10),
+  AIController.moderateContent
+);
+
 module.exports = router;

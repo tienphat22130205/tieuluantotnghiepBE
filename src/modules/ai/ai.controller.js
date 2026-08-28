@@ -29,6 +29,23 @@ class AIController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  static async moderateContent(req, res) {
+    try {
+      const result = await AIService.moderateContent({
+        text: req.body?.text || '',
+        files: req.files || [],
+      });
+
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, 'Kiểm duyệt nội dung hoàn tất', result.data);
+    } catch (error) {
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = AIController;
