@@ -1472,6 +1472,8 @@ class PostService {
         },
       ]);
 
+      await Post.populate(posts, COMMENT_USER_POPULATE);
+
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,

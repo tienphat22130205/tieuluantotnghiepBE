@@ -28,10 +28,10 @@ router.post('/:postId/share', authenticate, PostController.sharePost);
 router.get('/moderation/recent', authenticate, authorize(ROLES.MODERATOR, ROLES.ADMIN), PostController.getRecentPostsForModeration);
 router.delete('/:postId/moderator', authenticate, authorize(ROLES.MODERATOR, ROLES.ADMIN), PostController.deletePostByModerator);
 
-// Admin routes for post management and statistics
-router.get('/management/all', authenticate, authorize(ROLES.ADMIN), PostController.getAllPostsForManagement);
-router.get('/stats/overview', authenticate, authorize(ROLES.ADMIN), PostController.getPostOverview);
+// Admin & Moderator routes for post management and statistics
+router.get('/management/all', authenticate, authorize(ROLES.ADMIN, ROLES.MODERATOR), PostController.getAllPostsForManagement);
+router.get('/stats/overview', authenticate, authorize(ROLES.ADMIN, ROLES.MODERATOR), PostController.getPostOverview);
 router.get('/stats/trending', authenticate, PostController.getTrendingPosts);
-router.get('/stats/posts-over-time', authenticate, authorize(ROLES.ADMIN), PostController.getPostsOverTime);
+router.get('/stats/posts-over-time', authenticate, authorize(ROLES.ADMIN, ROLES.MODERATOR), PostController.getPostsOverTime);
 
 module.exports = router;

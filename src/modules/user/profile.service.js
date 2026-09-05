@@ -37,19 +37,32 @@ const mapProfileResponse = (user, postCount, postImages, friendCount, friends) =
 };
 
 class ProfileService {
-  static async getProfileByUserId(userId) {
+  static async getProfileByUserId(identifier) {
     try {
-      if (!mongoose.Types.ObjectId.isValid(userId)) {
+      if (!identifier) {
         return {
           success: false,
           statusCode: HTTP_STATUS.BAD_REQUEST,
-          message: 'User ID không hợp lệ',
+          message: 'Thông tin người dùng không hợp lệ',
         };
       }
 
-      const user = await User.findById(userId)
-        .populate('followers', 'username firstName lastName avatar')
-        .populate('following', 'username firstName lastName avatar');
+      const cleanIdentifier = String(identifier).trim().replace(/^@/, '');
+      let user = null;
+
+      if (mongoose.Types.ObjectId.isValid(cleanIdentifier)) {
+        user = await User.findById(cleanIdentifier)
+          .populate('followers', 'username firstName lastName avatar')
+          .populate('following', 'username firstName lastName avatar');
+      }
+
+      if (!user) {
+        user = await User.findOne({
+          username: { $regex: new RegExp(`^${cleanIdentifier}$`, 'i') },
+        })
+          .populate('followers', 'username firstName lastName avatar')
+          .populate('following', 'username firstName lastName avatar');
+      }
 
       if (!user) {
         return {
@@ -204,6 +217,40 @@ class ProfileService {
       return this.getProfileByUserId(user._id);
     } catch (error) {
       console.error('Update avatar error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async removeMyAvatar(userId) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'User ID không hợp lệ',
+        };
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      user.avatar = null;
+      await user.save();
+
+      return this.getProfileByUserId(user._id);
+    } catch (error) {
+      console.error('Remove avatar error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,

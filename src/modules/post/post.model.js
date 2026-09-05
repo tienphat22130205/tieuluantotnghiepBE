@@ -138,4 +138,6 @@ const postSchema = new mongoose.Schema(
   }
 );
 
+postSchema.index({ isDeleted: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Post', postSchema);

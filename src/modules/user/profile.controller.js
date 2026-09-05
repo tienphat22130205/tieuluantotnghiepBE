@@ -61,6 +61,21 @@ class ProfileController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  static async removeMyAvatar(req, res) {
+    try {
+      const result = await ProfileService.removeMyAvatar(req.user.id);
+
+      if (!result.success) {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+
+      return sendSuccess(res, result.statusCode, 'Gỡ avatar thành công', result.data);
+    } catch (error) {
+      console.error('Remove avatar controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = ProfileController;
