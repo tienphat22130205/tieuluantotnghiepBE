@@ -1524,6 +1524,81 @@ class AuthService {
       };
     }
   }
+
+  // Change password for logged-in user
+  static async changePassword(userId, currentPassword, newPassword, confirmPassword) {
+    try {
+      if (!currentPassword || !newPassword) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Vui lòng cung cấp mật khẩu hiện tại và mật khẩu mới.',
+        };
+      }
+
+      if (confirmPassword && newPassword !== confirmPassword) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Mật khẩu xác nhận không khớp.',
+        };
+      }
+
+      if (!validatePassword(newPassword)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Mật khẩu mới phải có ít nhất 6 ký tự.',
+        };
+      }
+
+      const user = await User.findById(userId).select('+password');
+      if (!user) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: MESSAGES.USER_NOT_FOUND,
+        };
+      }
+
+      // Check current password if user has password set
+      if (user.password) {
+        const isMatch = await user.comparePassword(currentPassword);
+        if (!isMatch) {
+          return {
+            success: false,
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+            message: 'Mật khẩu hiện tại không chính xác.',
+          };
+        }
+      }
+
+      if (currentPassword === newPassword) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.',
+        };
+      }
+
+      user.password = newPassword;
+      await user.save();
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Đổi mật khẩu thành công.',
+      };
+    } catch (error) {
+      console.error('Change password service error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
 }
 
 module.exports = AuthService;

@@ -87,17 +87,10 @@ const initSocketServer = (httpServer) => {
 
   io = new Server(httpServer, {
     cors: {
-      origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
-        const normalizedOrigin = origin.trim().replace(/\/$/, '');
-        if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes('*')) {
-          callback(null, true);
-        } else {
-          callback(new Error('Not allowed by CORS'));
-        }
-      },
+      origin: true,
       credentials: true,
     },
+    transports: ['polling', 'websocket'],
   });
 
   io.use((socket, next) => {

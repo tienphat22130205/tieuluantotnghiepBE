@@ -308,6 +308,12 @@ class ChatService {
     });
 
     for (const participantId of conversation.participants) {
+      // Emit to each participant's personal room to ensure realtime reception
+      emitToUser(participantId, 'chat:message:new', {
+        conversationId,
+        message,
+      });
+
       const participantUnreadCount = await ChatMessage.countDocuments({
         conversation: conversationId,
         sender: { $ne: participantId },

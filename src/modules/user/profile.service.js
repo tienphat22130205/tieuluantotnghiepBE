@@ -129,10 +129,19 @@ class ProfileService {
         };
       }
 
-      const allowedFields = ['firstName', 'lastName', 'avatar', 'bio'];
+      const allowedFields = ['firstName', 'lastName', 'avatar', 'bio', 'dateOfBirth'];
       for (const field of allowedFields) {
         if (Object.prototype.hasOwnProperty.call(payload, field)) {
-          user[field] = payload[field];
+          if (field === 'dateOfBirth') {
+            if (payload.dateOfBirth) {
+              const parsedDate = new Date(payload.dateOfBirth);
+              user.dateOfBirth = !isNaN(parsedDate.getTime()) ? parsedDate : user.dateOfBirth;
+            } else {
+              user.dateOfBirth = null;
+            }
+          } else {
+            user[field] = payload[field];
+          }
         }
       }
 

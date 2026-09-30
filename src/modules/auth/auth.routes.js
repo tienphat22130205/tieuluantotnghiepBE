@@ -22,6 +22,8 @@ router.get('/role-check', authenticate, AuthController.getRoleRedirection);
 router.post('/logout', authenticate, AuthController.logout);
 router.post('/suggest-username', authenticate, AuthController.suggestUsername);
 router.post('/set-username', authenticate, AuthController.setUsername);
+router.post('/change-password', authenticate, AuthController.changePassword);
+router.put('/change-password', authenticate, AuthController.changePassword);
 router.get('/moderator/dashboard', authenticate, authorize(ROLES.MODERATOR), AuthController.getModeratorDashboard);
 router.get('/admin/dashboard', authenticate, authorize(ROLES.ADMIN), AuthController.getAdminDashboard);
 router.get('/admin/users', authenticate, authorize(ROLES.ADMIN, ROLES.MODERATOR), AuthController.getAdminUserList);

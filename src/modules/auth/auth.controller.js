@@ -384,6 +384,30 @@ class AuthController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+
+  // Change password
+  static async changePassword(req, res) {
+    try {
+      const userId = req.user.id;
+      const { currentPassword, newPassword, confirmPassword } = req.body || {};
+
+      const result = await AuthService.changePassword(
+        userId,
+        currentPassword,
+        newPassword,
+        confirmPassword
+      );
+
+      if (result.success) {
+        return sendSuccess(res, result.statusCode, result.message, result.data);
+      } else {
+        return sendError(res, result.statusCode, result.message, result.error);
+      }
+    } catch (error) {
+      console.error('Change password controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = AuthController;
