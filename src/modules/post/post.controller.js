@@ -384,6 +384,35 @@ class PostController {
       return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
     }
   }
+  static async toggleBookmarkPost(req, res) {
+    try {
+      const result = await PostService.toggleBookmarkPost(req.user.id, req.params.postId);
+      return PostController.handleResult(res, result, 'Toggle bookmark post controller error:');
+    } catch (error) {
+      console.error('Toggle bookmark post controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async getMyBookmarks(req, res) {
+    try {
+      const result = await PostService.getMyBookmarks(req.user.id, req.query || {});
+      return PostController.handleResult(res, result, 'Get my bookmarks controller error:');
+    } catch (error) {
+      console.error('Get my bookmarks controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
+
+  static async checkIsPostBookmarked(req, res) {
+    try {
+      const result = await PostService.checkIsPostBookmarked(req.user.id, req.params.postId);
+      return PostController.handleResult(res, result, 'Check is post bookmarked controller error:');
+    } catch (error) {
+      console.error('Check is post bookmarked controller error:', error);
+      return sendError(res, 500, 'Lỗi máy chủ nội bộ', error.message);
+    }
+  }
 }
 
 module.exports = PostController;

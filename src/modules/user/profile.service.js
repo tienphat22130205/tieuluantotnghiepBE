@@ -33,6 +33,8 @@ const mapProfileResponse = (user, postCount, postImages, friendCount, friends) =
     },
     postImages,
     friends,
+    lastPasswordChangedAt: user.lastPasswordChangedAt || null,
+    lastProfileInfoChangedAt: user.lastProfileInfoChangedAt || null,
   };
 };
 
@@ -129,6 +131,29 @@ class ProfileService {
         };
       }
 
+      // Check if user is attempting to change name or date of birth
+      const isNameChanged =
+        (payload.firstName !== undefined && payload.firstName.trim() !== (user.firstName || '').trim()) ||
+        (payload.lastName !== undefined && payload.lastName.trim() !== (user.lastName || '').trim());
+
+      const currentDobStr = user.dateOfBirth ? new Date(user.dateOfBirth).toISOString().split('T')[0] : '';
+      const newDobStr = payload.dateOfBirth ? new Date(payload.dateOfBirth).toISOString().split('T')[0] : '';
+      const isDobChanged = payload.dateOfBirth !== undefined && newDobStr !== currentDobStr;
+
+      if ((isNameChanged || isDobChanged) && user.lastProfileInfoChangedAt) {
+        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+        const elapsed = Date.now() - new Date(user.lastProfileInfoChangedAt).getTime();
+        if (elapsed < THIRTY_DAYS_MS) {
+          const daysRemaining = Math.ceil((THIRTY_DAYS_MS - elapsed) / (24 * 60 * 60 * 1000));
+          return {
+            success: false,
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+            message: `Bạn chỉ có thể đổi họ tên hoặc ngày sinh 30 ngày một lần. Vui lòng thử lại sau ${daysRemaining} ngày nữa.`,
+            daysRemaining,
+          };
+        }
+      }
+
       const allowedFields = ['firstName', 'lastName', 'avatar', 'bio', 'dateOfBirth'];
       for (const field of allowedFields) {
         if (Object.prototype.hasOwnProperty.call(payload, field)) {
@@ -143,6 +168,10 @@ class ProfileService {
             user[field] = payload[field];
           }
         }
+      }
+
+      if (isNameChanged || isDobChanged) {
+        user.lastProfileInfoChangedAt = new Date();
       }
 
       if (payload.location && typeof payload.location === 'object') {

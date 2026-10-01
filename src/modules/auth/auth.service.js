@@ -1581,13 +1581,32 @@ class AuthService {
         };
       }
 
+      // Check 30-day cooldown for password change
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      if (user.lastPasswordChangedAt) {
+        const elapsed = Date.now() - new Date(user.lastPasswordChangedAt).getTime();
+        if (elapsed < THIRTY_DAYS_MS) {
+          const daysRemaining = Math.ceil((THIRTY_DAYS_MS - elapsed) / (24 * 60 * 60 * 1000));
+          return {
+            success: false,
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+            message: `Bạn chỉ có thể đổi mật khẩu 30 ngày một lần. Vui lòng thử lại sau ${daysRemaining} ngày nữa.`,
+            daysRemaining,
+          };
+        }
+      }
+
       user.password = newPassword;
+      user.lastPasswordChangedAt = new Date();
       await user.save();
 
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
         message: 'Đổi mật khẩu thành công.',
+        data: {
+          lastPasswordChangedAt: user.lastPasswordChangedAt,
+        },
       };
     } catch (error) {
       console.error('Change password service error:', error);

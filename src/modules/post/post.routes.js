@@ -11,12 +11,15 @@ router.post('/status', authenticate, PostController.createMyStatusPost);
 router.get('/feed', authenticate, PostController.getFeedPosts);
 router.get('/me', authenticate, PostController.getMyPosts);
 router.get('/user/:userId', authenticate, PostController.getUserPosts);
+router.get('/bookmarks/my-bookmarks', authenticate, PostController.getMyBookmarks);
 router.get('/search', authenticate, PostController.searchPosts);
 router.get('/:postId', authenticate, PostController.getPostById);
 router.patch('/:postId', authenticate, PostController.updateMyPost);
 router.delete('/:postId', authenticate, PostController.deleteMyPost);
 router.post('/:postId/like', authenticate, PostController.likePost);
 router.delete('/:postId/like', authenticate, PostController.unlikePost);
+router.post('/:postId/bookmark', authenticate, PostController.toggleBookmarkPost);
+router.get('/:postId/bookmark', authenticate, PostController.checkIsPostBookmarked);
 router.get('/:postId/comments', authenticate, PostController.getComments);
 router.post('/:postId/comments', authenticate, PostController.addComment);
 // Moderator routes for content moderation (specific routes before generic ones)

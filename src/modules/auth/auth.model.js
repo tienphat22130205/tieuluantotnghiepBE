@@ -58,6 +58,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    lastProfileInfoChangedAt: {
+      type: Date,
+      default: null,
+    },
+    lastPasswordChangedAt: {
+      type: Date,
+      default: null,
+    },
     avatar: {
       type: String,
       default: null,

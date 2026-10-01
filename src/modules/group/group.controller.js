@@ -22,7 +22,7 @@ class GroupController {
   }
 
   static async searchGroups(req, res) {
-    const result = await GroupService.searchGroups(req.query);
+    const result = await GroupService.searchGroups(req.query, req.user?.id);
     handleResult(res, result);
   }
 

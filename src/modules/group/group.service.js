@@ -126,7 +126,7 @@ class GroupService {
   }
 
   // ── Tìm kiếm nhóm ──
-  static async searchGroups(query = {}) {
+  static async searchGroups(query = {}, requesterId = null) {
     const page = Math.max(Number(query.page) || 1, 1);
     const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 50);
     const keyword = String(query.q || '').trim();
@@ -145,11 +145,36 @@ class GroupService {
         .limit(limit),
     ]);
 
+    const groupIds = items.map((g) => g._id);
+    const myMemberships = requesterId
+      ? await GroupMember.find({
+          group: { $in: groupIds },
+          user: requesterId,
+        })
+      : [];
+
+    const membershipMap = new Map(
+      myMemberships.map((m) => [String(m.group), m])
+    );
+
+    const mappedItems = items.map((g) => {
+      const m = membershipMap.get(String(g._id));
+      const isCreator = requesterId && String(g.creator?._id || g.creator) === String(requesterId);
+      const isJoined = Boolean(isCreator || (m && (m.status === 'approved' || m.role === 'admin' || m.role === 'moderator')));
+      return {
+        ...g.toObject(),
+        myMembership: m ? { role: m.role, status: m.status } : (isCreator ? { role: 'admin', status: 'approved' } : null),
+        memberStatus: m?.status || (isCreator ? 'approved' : null),
+        myRole: m?.role || (isCreator ? 'admin' : null),
+        isJoined,
+      };
+    });
+
     return {
       success: true,
       statusCode: HTTP_STATUS.OK,
       message: 'Tìm kiếm nhóm thành công',
-      data: { items, meta: { page, limit, total, hasMore: page * limit < total } },
+      data: { items: mappedItems, meta: { page, limit, total, hasMore: page * limit < total } },
     };
   }
 
@@ -176,6 +201,8 @@ class GroupService {
       .map((m) => ({
         ...m.group.toObject(),
         myRole: m.role,
+        memberStatus: m.status || 'approved',
+        isJoined: true,
       }));
 
     const total = await GroupMember.countDocuments({ user: userId, status: 'approved' });

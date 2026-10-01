@@ -65,6 +65,28 @@ class ChatService {
         .populate('lastMessage.sender', MESSAGE_SENDER_FIELDS);
     }
 
+    let lastMessage = conversation.lastMessage;
+    if (!lastMessage || !lastMessage.content) {
+      const latestMsg = await ChatMessage.findOne({
+        conversation: conversation._id,
+        isDeleted: { $ne: true },
+      })
+        .sort({ createdAt: -1 })
+        .populate('sender', MESSAGE_SENDER_FIELDS);
+
+      if (latestMsg) {
+        lastMessage = {
+          content: latestMsg.type === 'sticker' ? '[Sticker]' : latestMsg.content,
+          sender: latestMsg.sender,
+          createdAt: latestMsg.createdAt,
+        };
+        await ChatConversation.updateOne(
+          { _id: conversation._id },
+          { $set: { lastMessage } }
+        );
+      }
+    }
+
     const unreadCount = await ChatMessage.countDocuments({
       conversation: conversation._id,
       sender: { $ne: userId },
@@ -72,11 +94,16 @@ class ChatService {
       'readBy.user': { $ne: new mongoose.Types.ObjectId(userId) },
     });
 
+    const mapped = mapConversation(conversation, unreadCount);
+    if (lastMessage) {
+      mapped.lastMessage = lastMessage;
+    }
+
     return {
       success: true,
       statusCode: HTTP_STATUS.OK,
       message: 'Lấy cuộc trò chuyện thành công',
-      data: mapConversation(conversation, unreadCount),
+      data: mapped,
     };
   }
 
@@ -108,13 +135,39 @@ class ChatService {
 
     const mappedConversations = await Promise.all(
       conversations.map(async (conversation) => {
+        let lastMessage = conversation.lastMessage;
+        if (!lastMessage || !lastMessage.content) {
+          const latestMsg = await ChatMessage.findOne({
+            conversation: conversation._id,
+            isDeleted: { $ne: true },
+          })
+            .sort({ createdAt: -1 })
+            .populate('sender', MESSAGE_SENDER_FIELDS);
+
+          if (latestMsg) {
+            lastMessage = {
+              content: latestMsg.type === 'sticker' ? '[Sticker]' : latestMsg.content,
+              sender: latestMsg.sender,
+              createdAt: latestMsg.createdAt,
+            };
+            await ChatConversation.updateOne(
+              { _id: conversation._id },
+              { $set: { lastMessage } }
+            );
+          }
+        }
+
         const unreadCount = await ChatMessage.countDocuments({
           conversation: conversation._id,
           sender: { $ne: userId },
           isDeleted: { $ne: true },
           'readBy.user': { $ne: new mongoose.Types.ObjectId(userId) },
         });
-        return mapConversation(conversation, unreadCount);
+        const mapped = mapConversation(conversation, unreadCount);
+        if (lastMessage) {
+          mapped.lastMessage = lastMessage;
+        }
+        return mapped;
       })
     );
 

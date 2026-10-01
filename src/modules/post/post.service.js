@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Post = require('./post.model');
+const Bookmark = require('./bookmark.model');
 const User = require('../auth/auth.model');
 const NotificationService = require('../notification/notification.service');
 const AIService = require('../ai/ai.service');
@@ -2176,6 +2177,158 @@ class PostService {
       };
     } catch (error) {
       console.error('Search posts error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async toggleBookmarkPost(userId, postId) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(postId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Dữ liệu không hợp lệ',
+        };
+      }
+
+      const post = await Post.findOne({ _id: postId, ...ACTIVE_POST_FILTER });
+      if (!post) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.NOT_FOUND,
+          message: 'Không tìm thấy bài viết hoặc bài viết đã bị xóa',
+        };
+      }
+
+      const existing = await Bookmark.findOne({ user: userId, post: postId });
+      if (existing) {
+        await Bookmark.deleteOne({ _id: existing._id });
+        return {
+          success: true,
+          statusCode: HTTP_STATUS.OK,
+          message: 'Đã gỡ bài viết khỏi danh sách Đã lưu',
+          data: {
+            postId,
+            bookmarked: false,
+          },
+        };
+      }
+
+      await Bookmark.create({ user: userId, post: postId });
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Đã lưu bài viết vào danh sách Yêu thích!',
+        data: {
+          postId,
+          bookmarked: true,
+        },
+      };
+    } catch (error) {
+      console.error('Toggle bookmark post error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async getMyBookmarks(userId, query = {}) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'User ID không hợp lệ',
+        };
+      }
+
+      const page = Math.max(1, parseInt(query.page, 10) || 1);
+      const limit = Math.max(1, Math.min(100, parseInt(query.limit, 10) || 20));
+      const skip = (page - 1) * limit;
+
+      const [bookmarks, total] = await Promise.all([
+        Bookmark.find({ user: userId })
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate({
+            path: 'post',
+            match: ACTIVE_POST_FILTER,
+            populate: [
+              {
+                path: 'author',
+                select: 'username firstName lastName avatar',
+              },
+              SHARED_POST_POPULATE,
+              COMMENT_USER_POPULATE,
+            ],
+          })
+          .lean(),
+        Bookmark.countDocuments({ user: userId }),
+      ]);
+
+      const validSavedPosts = bookmarks
+        .filter((b) => b.post && !b.post.isDeleted)
+        .map((b) => {
+          const postObj = b.post;
+          return {
+            ...postObj,
+            savedAt: b.createdAt,
+            isSaved: true,
+          };
+        });
+
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Lấy danh sách bài viết đã lưu thành công',
+        data: {
+          items: validSavedPosts,
+          meta: {
+            page,
+            limit,
+            total,
+            hasMore: skip + bookmarks.length < total,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Get my bookmarks error:', error);
+      return {
+        success: false,
+        statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        error: error.message,
+      };
+    }
+  }
+
+  static async checkIsPostBookmarked(userId, postId) {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(postId)) {
+        return {
+          success: true,
+          statusCode: HTTP_STATUS.OK,
+          data: { isSaved: false },
+        };
+      }
+
+      const exists = await Bookmark.exists({ user: userId, post: postId });
+      return {
+        success: true,
+        statusCode: HTTP_STATUS.OK,
+        data: { isSaved: Boolean(exists) },
+      };
+    } catch (error) {
+      console.error('Check is post bookmarked error:', error);
       return {
         success: false,
         statusCode: HTTP_STATUS.INTERNAL_SERVER_ERROR,
