@@ -34,6 +34,11 @@ const uploadToCloudinary = (file, folder = 'general') => {
       {
         folder: `zivo/${folder}`,
         resource_type: 'auto',
+        quality: 'auto',
+        fetch_format: 'auto',
+        max_width: 2048,
+        max_height: 2048,
+        crop: 'limit',
       },
       (error, result) => {
         if (error) {

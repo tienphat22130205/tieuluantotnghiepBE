@@ -71,9 +71,26 @@ const uploadStoryMedia = multer({
   },
 });
 
+const chatFileFilter = (req, file, cb) => {
+  const isImage = file.mimetype && file.mimetype.startsWith('image/');
+  if (!isImage) {
+    return cb(new Error('Chỉ chấp nhận file hình ảnh cho tin nhắn!'), false);
+  }
+  cb(null, true);
+};
+
+const uploadChatMedia = multer({
+  storage: memoryStorage,
+  fileFilter: chatFileFilter,
+  limits: {
+    fileSize: 15 * 1024 * 1024, // 15MB limit
+  },
+});
+
 module.exports = {
   uploadAvatar,
   uploadPostImages,
   uploadPostImagesMemory,
   uploadStoryMedia,
+  uploadChatMedia,
 };

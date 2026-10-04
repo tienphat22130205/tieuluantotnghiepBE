@@ -16,7 +16,8 @@ const chatMessageSchema = new mongoose.Schema(
     },
     content: {
       type: String,
-      required: true,
+      required: false,
+      default: '',
       trim: true,
       maxlength: 5000,
     },
@@ -53,9 +54,13 @@ const chatMessageSchema = new mongoose.Schema(
     ],
     type: {
       type: String,
-      enum: ['text', 'sticker', 'call'],
+      enum: ['text', 'sticker', 'call', 'image'],
       default: 'text',
       index: true,
+    },
+    mediaUrl: {
+      type: String,
+      default: null,
     },
     sticker: {
       type: String,

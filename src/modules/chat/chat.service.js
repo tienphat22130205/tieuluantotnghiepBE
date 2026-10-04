@@ -4,6 +4,7 @@ const ChatMessage = require('./chat-message.model');
 const User = require('../auth/auth.model');
 const { HTTP_STATUS, MESSAGES } = require('../../constants');
 const { emitToChatRoom, emitToUser } = require('../../realtime/socket');
+const { saveFile } = require('../../utils/cloudinary');
 
 const PARTICIPANT_FIELDS = 'username firstName lastName avatar isOnline lastSeen';
 const MESSAGE_SENDER_FIELDS = 'username firstName lastName avatar';
@@ -76,7 +77,9 @@ class ChatService {
 
       if (latestMsg) {
         lastMessage = {
-          content: latestMsg.type === 'sticker' ? '[Sticker]' : latestMsg.content,
+          content: latestMsg.type === 'sticker'
+            ? '[Sticker]'
+            : (latestMsg.type === 'image' ? (latestMsg.content || '[Hình ảnh]') : latestMsg.content),
           sender: latestMsg.sender,
           createdAt: latestMsg.createdAt,
         };
@@ -146,7 +149,9 @@ class ChatService {
 
           if (latestMsg) {
             lastMessage = {
-              content: latestMsg.type === 'sticker' ? '[Sticker]' : latestMsg.content,
+              content: latestMsg.type === 'sticker'
+                ? '[Sticker]'
+                : (latestMsg.type === 'image' ? (latestMsg.content || '[Hình ảnh]') : latestMsg.content),
               sender: latestMsg.sender,
               createdAt: latestMsg.createdAt,
             };
@@ -260,7 +265,7 @@ class ChatService {
     };
   }
 
-  static async sendMessage(userId, conversationId, payload = {}) {
+  static async sendMessage(userId, conversationId, payload = {}, file = null) {
     if (!isValidObjectId(userId) || !isValidObjectId(conversationId)) {
       return {
         success: false,
@@ -269,24 +274,42 @@ class ChatService {
       };
     }
 
-    const type = payload.type === 'sticker' ? 'sticker' : 'text';
-    const sticker = payload.type === 'sticker' ? String(payload.stickerUrl || '').trim() : null;
-    const content = type === 'sticker' ? '[Sticker]' : String(payload.content || '').trim();
+    let type = payload.type || 'text';
+    let mediaUrl = null;
+    let sticker = null;
 
-    if (type === 'text' && !content) {
-      return {
-        success: false,
-        statusCode: HTTP_STATUS.BAD_REQUEST,
-        message: 'Nội dung tin nhắn không được để trống',
-      };
+    if (file) {
+      type = 'image';
+      mediaUrl = await saveFile(file, 'chat');
+    } else if (payload.type === 'image' && payload.mediaUrl) {
+      type = 'image';
+      mediaUrl = payload.mediaUrl;
+    } else if (payload.type === 'sticker') {
+      type = 'sticker';
+      sticker = String(payload.stickerUrl || '').trim();
+      if (!sticker) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Sticker URL không được để trống',
+        };
+      }
     }
 
-    if (type === 'sticker' && !sticker) {
-      return {
-        success: false,
-        statusCode: HTTP_STATUS.BAD_REQUEST,
-        message: 'Sticker URL không được để trống',
-      };
+    let content = '';
+    if (type === 'image') {
+      content = (payload.content && String(payload.content).trim()) || '[Hình ảnh]';
+    } else if (type === 'sticker') {
+      content = '[Sticker]';
+    } else {
+      content = String(payload.content || '').trim();
+      if (!content) {
+        return {
+          success: false,
+          statusCode: HTTP_STATUS.BAD_REQUEST,
+          message: 'Nội dung tin nhắn không được để trống',
+        };
+      }
     }
 
     const conversation = await ChatConversation.findOne({
@@ -314,14 +337,24 @@ class ChatService {
       }
     }
 
+    let storyReply = payload.storyReply || null;
+    if (typeof storyReply === 'string') {
+      try {
+        storyReply = JSON.parse(storyReply);
+      } catch (e) {
+        storyReply = null;
+      }
+    }
+
     let message = await ChatMessage.create({
       conversation: conversationId,
       sender: userId,
       content,
       type,
+      mediaUrl,
       sticker,
       replyTo: replyTo || null,
-      storyReply: payload.storyReply || null,
+      storyReply: storyReply || null,
       readBy: [
         {
           user: userId,
@@ -341,12 +374,16 @@ class ChatService {
         },
       });
 
+    const lastMessageContent = type === 'image'
+      ? (content && content !== '[Hình ảnh]' ? `[Hình ảnh] ${content}` : '[Hình ảnh]')
+      : (type === 'sticker' ? '[Sticker]' : content);
+
     await ChatConversation.updateOne(
       { _id: conversationId },
       {
         $set: {
           lastMessage: {
-            content,
+            content: lastMessageContent,
             sender: userId,
             createdAt: message.createdAt,
           },
@@ -378,7 +415,7 @@ class ChatService {
         conversationId,
         unreadCount: participantUnreadCount,
         lastMessage: {
-          content,
+          content: lastMessageContent,
           sender: userId,
           createdAt: message.createdAt,
         },

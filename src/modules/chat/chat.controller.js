@@ -40,7 +40,12 @@ class ChatController {
 
   static async sendMessage(req, res) {
     try {
-      const result = await ChatService.sendMessage(req.user.id, req.params.conversationId, req.body || {});
+      const result = await ChatService.sendMessage(
+        req.user.id,
+        req.params.conversationId,
+        req.body || {},
+        req.file || null
+      );
       if (!result.success) {
         return sendError(res, result.statusCode, result.message, result.error);
       }
