@@ -112,15 +112,30 @@ class GroupService {
       ? await GroupMember.findOne({ group: groupId, user: requesterId })
       : null;
 
+    const isCreator = requesterId && group.creator
+      ? String(group.creator._id || group.creator) === String(requesterId)
+      : false;
+
+    const resolvedMembership = membership
+      ? { role: membership.role, status: membership.status }
+      : isCreator
+        ? { role: 'admin', status: 'approved' }
+        : null;
+
+    const memberStatus = resolvedMembership
+      ? (resolvedMembership.status === 'pending'
+          ? 'pending'
+          : (resolvedMembership.role || resolvedMembership.status))
+      : null;
+
     return {
       success: true,
       statusCode: HTTP_STATUS.OK,
       message: 'Lấy thông tin nhóm thành công',
       data: {
         ...group.toObject(),
-        myMembership: membership
-          ? { role: membership.role, status: membership.status }
-          : null,
+        myMembership: resolvedMembership,
+        memberStatus,
       },
     };
   }

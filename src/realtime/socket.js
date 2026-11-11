@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const { verifyToken } = require('../utils/jwt');
 const User = require('../modules/auth/auth.model');
 const ChatConversation = require('../modules/chat/chat-conversation.model');
+const AdminNotification = require('../modules/notification/admin-notification.model');
 
 let io;
 const activeConnectionsByUser = new Map();
@@ -30,11 +31,14 @@ const emitPresenceUpdate = (userId, isOnline, lastSeen = null) => {
     return;
   }
 
-  io.emit('presence:update', {
+  const payload = {
     userId,
     isOnline,
     lastSeen,
-  });
+  };
+
+  io.emit('presence:update', payload);
+  io.to('admin:channel').emit('admin:user_presence', payload);
 };
 
 const markUserOnline = async (userId) => {
@@ -111,6 +115,25 @@ const initSocketServer = (httpServer) => {
   io.on('connection', (socket) => {
     const userId = socket.user.id.toString();
     socket.join(`user:${userId}`);
+
+    // If admin or moderator, automatically join admin room
+    const userRole = String(socket.user?.role || '').toLowerCase();
+    if (userRole === 'admin' || userRole === 'moderator') {
+      socket.join('admin:channel');
+      socket.join('stats:dashboard');
+    }
+
+    socket.on('admin:join', () => {
+      const role = String(socket.user?.role || '').toLowerCase();
+      if (role === 'admin' || role === 'moderator') {
+        socket.join('admin:channel');
+        socket.join('stats:dashboard');
+      }
+    });
+
+    socket.on('admin:leave', () => {
+      socket.leave('admin:channel');
+    });
 
     const connectionCount = increaseConnection(userId);
     if (connectionCount === 1) {
@@ -265,11 +288,60 @@ const emitStatsUpdate = (eventType, payload = {}) => {
     return;
   }
 
-  io.to('stats:dashboard').emit('stats:update', {
+  const data = {
     eventType,
     timestamp: new Date(),
     ...payload,
-  });
+  };
+
+  io.to('stats:dashboard').emit('stats:update', data);
+  io.to('admin:channel').emit('admin:stats_update', data);
+};
+
+const emitToAdmin = (eventName, payload) => {
+  if (!io) {
+    return;
+  }
+
+  io.to('admin:channel').emit(eventName, payload);
+};
+
+const emitAdminNotification = async (notifData = {}) => {
+  try {
+    let saved = null;
+    if (mongoose.connection.readyState === 1) {
+      saved = await AdminNotification.create({
+        type: notifData.type || 'system_alert',
+        title: notifData.title || 'Thông báo quản trị',
+        message: notifData.message || '',
+        actor: notifData.actor || {},
+        targetId: notifData.targetId ? String(notifData.targetId) : '',
+        targetType: notifData.targetType || '',
+        link: notifData.link || 'dashboard',
+        metadata: notifData.metadata || {},
+      });
+    }
+
+    const payload = saved ? saved.toObject() : {
+      _id: new mongoose.Types.ObjectId().toString(),
+      ...notifData,
+      createdAt: new Date(),
+      isRead: false,
+    };
+
+    if (io) {
+      io.to('admin:channel').emit('admin:notification', payload);
+      const unreadCount = await AdminNotification.countDocuments({ isRead: false }).catch(() => 0);
+      io.to('admin:channel').emit('admin:unread_count', { unreadCount });
+    }
+    return payload;
+  } catch (error) {
+    console.error('emitAdminNotification error:', error);
+    if (io) {
+      io.to('admin:channel').emit('admin:notification', notifData);
+    }
+    return notifData;
+  }
 };
 
 const emitToGroupRoom = (groupId, eventName, payload) => {
@@ -284,4 +356,6 @@ module.exports = {
   emitToChatRoom,
   emitStatsUpdate,
   emitToGroupRoom,
+  emitToAdmin,
+  emitAdminNotification,
 };

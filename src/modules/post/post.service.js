@@ -4,7 +4,7 @@ const Bookmark = require('./bookmark.model');
 const User = require('../auth/auth.model');
 const NotificationService = require('../notification/notification.service');
 const AIService = require('../ai/ai.service');
-const { emitToPostRoom, emitToUser, emitStatsUpdate } = require('../../realtime/socket');
+const { emitToPostRoom, emitToUser, emitStatsUpdate, emitToAdmin, emitAdminNotification } = require('../../realtime/socket');
 const { HTTP_STATUS, MESSAGES } = require('../../constants');
 const { saveFile } = require('../../utils/cloudinary');
 
@@ -443,6 +443,43 @@ class PostService {
         postType: post.postType,
       });
 
+      // Realtime notification & moderation sync to Admin
+      try {
+        const authorUser = await User.findById(userId).select('fullName username avatar firstName lastName');
+        const authorName = authorUser?.fullName || `${authorUser?.firstName || ''} ${authorUser?.lastName || ''}`.trim() || authorUser?.username || 'Người dùng';
+
+        emitAdminNotification({
+          type: 'post_created',
+          title: 'Bài viết mới được đăng',
+          message: `${authorName} vừa đăng một bài viết hình ảnh mới.`,
+          actor: {
+            id: userId,
+            name: authorName,
+            avatar: authorUser?.avatar || null,
+          },
+          targetId: String(post._id),
+          targetType: 'Post',
+          link: 'posts',
+        });
+
+        emitToAdmin('admin:post_created', {
+          post: {
+            id: String(post._id),
+            author: authorName,
+            username: authorUser?.username || '',
+            content: post.content || '',
+            images: post.images || [],
+            createdAt: post.createdAt,
+            likes: 0,
+            comments: 0,
+            interactions: 0,
+            isDeleted: false,
+          },
+        });
+      } catch (adminEmitErr) {
+        console.error('Realtime emit post_created error:', adminEmitErr);
+      }
+
       return {
         success: true,
         statusCode: HTTP_STATUS.CREATED,
@@ -719,6 +756,48 @@ class PostService {
         postType: 'status',
       });
 
+      emitStatsUpdate('post:created', {
+        postId: post._id,
+        postType: post.postType,
+      });
+
+      // Realtime notification & moderation sync to Admin
+      try {
+        const authorUser = await User.findById(userId).select('fullName username avatar firstName lastName');
+        const authorName = authorUser?.fullName || `${authorUser?.firstName || ''} ${authorUser?.lastName || ''}`.trim() || authorUser?.username || 'Người dùng';
+
+        emitAdminNotification({
+          type: 'post_created',
+          title: 'Bài viết mới được đăng',
+          message: `${authorName} vừa đăng một bài viết trạng thái: "${(post.content || '').slice(0, 60)}"`,
+          actor: {
+            id: userId,
+            name: authorName,
+            avatar: authorUser?.avatar || null,
+          },
+          targetId: String(post._id),
+          targetType: 'Post',
+          link: 'posts',
+        });
+
+        emitToAdmin('admin:post_created', {
+          post: {
+            id: String(post._id),
+            author: authorName,
+            username: authorUser?.username || '',
+            content: post.content || '',
+            images: [],
+            createdAt: post.createdAt,
+            likes: 0,
+            comments: 0,
+            interactions: 0,
+            isDeleted: false,
+          },
+        });
+      } catch (adminEmitErr) {
+        console.error('Realtime emit status post_created error:', adminEmitErr);
+      }
+
       return {
         success: true,
         statusCode: HTTP_STATUS.CREATED,
@@ -877,6 +956,10 @@ class PostService {
       emitStatsUpdate('post:deleted', {
         postId: postId,
         reason: 'user_deleted',
+      });
+
+      emitToAdmin('admin:post_deleted', {
+        postId: String(postId),
       });
 
       return {
@@ -1069,6 +1152,25 @@ class PostService {
         commentCount: post.comments.length,
       });
 
+      try {
+        const commentAuthor = newComment?.user;
+        const commentAuthorName = commentAuthor?.fullName || `${commentAuthor?.firstName || ''} ${commentAuthor?.lastName || ''}`.trim() || commentAuthor?.username || 'Người dùng';
+        emitToAdmin('admin:comment_created', {
+          comment: {
+            id: String(newComment._id),
+            postId: String(post._id),
+            postContent: post.content || '--',
+            author: commentAuthorName,
+            username: commentAuthor?.username || '',
+            avatar: commentAuthor?.avatar || null,
+            content: newComment.content || '--',
+            createdAt: newComment.createdAt || new Date(),
+          },
+        });
+      } catch (adminCommentErr) {
+        console.error('Realtime emit admin comment error:', adminCommentErr);
+      }
+
       return {
         success: true,
         statusCode: HTTP_STATUS.CREATED,
@@ -1135,6 +1237,16 @@ class PostService {
       emitToPostRoom(post._id, 'post:comment-deleted', {
         postId: post._id,
         deletedCommentId: commentId,
+        commentCount: post.comments.length,
+      });
+
+      emitToAdmin('admin:comment_deleted', {
+        commentId: String(commentId),
+        postId: String(post._id),
+      });
+
+      emitStatsUpdate('comment:deleted', {
+        postId: post._id,
         commentCount: post.comments.length,
       });
 
@@ -1344,6 +1456,10 @@ class PostService {
         reason: 'moderator_deleted',
       });
 
+      emitToAdmin('admin:post_deleted', {
+        postId: String(postId),
+      });
+
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
@@ -1537,6 +1653,22 @@ class PostService {
         title: 'Bình luận bị xóa',
         description: `Bình luận của bạn đã bị xóa. Lý do: ${String(payload.reason || 'Vi phạm chính sách cộng đồng').trim()}`,
         relatedPost: postId,
+      });
+
+      emitToPostRoom(post._id, 'post:comment-deleted', {
+        postId: post._id,
+        deletedCommentId: commentId,
+        commentCount: post.comments.length,
+      });
+
+      emitToAdmin('admin:comment_deleted', {
+        commentId: String(commentId),
+        postId: String(post._id),
+      });
+
+      emitStatsUpdate('comment:deleted', {
+        postId: post._id,
+        commentCount: post.comments.length,
       });
 
       return {

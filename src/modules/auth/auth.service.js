@@ -15,6 +15,7 @@ const {
 } = require('../../utils/validation');
 const { MESSAGES, HTTP_STATUS, ROLES } = require('../../constants');
 const emailService = require('../../services/email.service');
+const { emitToAdmin, emitAdminNotification, emitStatsUpdate } = require('../../realtime/socket');
 
 class AuthService {
   static async releaseExpiredBanIfNeeded(user, now = new Date()) {
@@ -190,6 +191,36 @@ class AuthService {
         .catch((error) => {
           console.error('Failed to send verification email error:', error);
         });
+
+      // Realtime notification to Admins
+      try {
+        emitAdminNotification({
+          type: 'user_registered',
+          title: 'Người dùng mới đăng ký',
+          message: `${newUser.email} (${newUser.firstName} ${newUser.lastName}) vừa tạo tài khoản Zivo mới.`,
+          actor: {
+            id: newUser._id,
+            name: `${newUser.firstName} ${newUser.lastName}`.trim(),
+            email: newUser.email,
+          },
+          targetId: String(newUser._id),
+          targetType: 'User',
+          link: 'users',
+        });
+        emitToAdmin('admin:user_registered', {
+          user: {
+            id: String(newUser._id),
+            fullName: `${newUser.firstName} ${newUser.lastName}`.trim(),
+            email: newUser.email,
+            role: newUser.role,
+            status: 'active',
+            lastActive: new Date().toISOString(),
+          },
+        });
+        emitStatsUpdate('user:registered');
+      } catch (err) {
+        console.error('Realtime emit user_registered error:', err);
+      }
 
       return {
         success: true,
@@ -907,10 +938,30 @@ class AuthService {
         }
       );
 
+      // Realtime notification & sync
+      try {
+        emitAdminNotification({
+          type: 'user_banned',
+          title: 'Tài khoản đã bị khóa',
+          message: `Tài khoản ${user.email} đã bị khóa (${banUntil ? 'Tạm thời' : 'Vĩnh viễn'}). Lý do: ${user.banReason}`,
+          actor: { id: adminUserId },
+          targetId: String(user._id),
+          targetType: 'User',
+          link: 'users',
+        });
+        emitToAdmin('admin:user_updated', {
+          userId: String(user._id),
+          status: 'locked',
+          isBanned: true,
+          banReason: user.banReason,
+          banUntil: user.banUntil,
+        });
+        emitStatsUpdate('user:banned');
+      } catch (err) {
+        console.error('Realtime emit user_banned error:', err);
+      }
+
       return {
-        success: true,
-        statusCode: HTTP_STATUS.OK,
-        message: banUntil ? 'Khóa tài khoản tạm thời thành công' : 'Khóa tài khoản vĩnh viễn thành công',
         data: {
           id: user._id,
           isBanned: user.isBanned,
@@ -956,6 +1007,29 @@ class AuthService {
       user.unbannedAt = new Date();
       user.unbannedBy = adminUserId;
       await user.save();
+
+      // Realtime notification & sync
+      try {
+        emitAdminNotification({
+          type: 'user_unbanned',
+          title: 'Tài khoản đã được mở khóa',
+          message: `Tài khoản ${user.email} đã được mở khóa thành công.`,
+          actor: { id: adminUserId },
+          targetId: String(user._id),
+          targetType: 'User',
+          link: 'users',
+        });
+        emitToAdmin('admin:user_updated', {
+          userId: String(user._id),
+          status: 'active',
+          isBanned: false,
+          banReason: '',
+          banUntil: null,
+        });
+        emitStatsUpdate('user:unbanned');
+      } catch (err) {
+        console.error('Realtime emit user_unbanned error:', err);
+      }
 
       return {
         success: true,
@@ -1042,6 +1116,39 @@ class AuthService {
         status: 'pending',
         banReasonSnapshot: user.banReason || '',
       });
+
+      // Realtime notification & sync to Admin
+      try {
+        emitAdminNotification({
+          type: 'unban_request',
+          title: 'Yêu cầu mở khóa tài khoản mới',
+          message: `${user.email} vừa gửi lý do mở khóa: "${reason}"`,
+          actor: {
+            id: user._id,
+            name: user.email,
+            email: user.email,
+          },
+          targetId: String(unbanRequest._id),
+          targetType: 'UnbanRequest',
+          link: 'unbanRequests',
+          metadata: {
+            reason,
+            banReasonSnapshot: user.banReason || '',
+          },
+        });
+        emitToAdmin('admin:unban_request_created', {
+          request: {
+            id: String(unbanRequest._id),
+            email: user.email,
+            reason,
+            status: 'pending',
+            createdAt: unbanRequest.createdAt,
+          },
+        });
+        emitStatsUpdate('unban_request:created');
+      } catch (err) {
+        console.error('Realtime emit unban_request_created error:', err);
+      }
 
       return {
         success: true,
@@ -1237,6 +1344,29 @@ class AuthService {
 
       await request.save();
 
+      // Realtime notification & sync
+      try {
+        emitAdminNotification({
+          type: 'unban_reviewed',
+          title: `Yêu cầu mở khóa đã được ${decision === 'approve' ? 'chấp thuận' : 'từ chối'}`,
+          message: `Yêu cầu của ${request.email} đã được admin xử lý (${decision === 'approve' ? 'Mở khóa' : 'Từ chối'}).`,
+          actor: { id: adminUserId },
+          targetId: String(request._id),
+          targetType: 'UnbanRequest',
+          link: 'unbanRequests',
+          metadata: { decision, adminNote },
+        });
+        emitToAdmin('admin:unban_request_reviewed', {
+          requestId: String(request._id),
+          status: request.status,
+          adminNote,
+          unbanResult,
+        });
+        emitStatsUpdate('unban_request:reviewed');
+      } catch (err) {
+        console.error('Realtime emit unban_reviewed error:', err);
+      }
+
       return {
         success: true,
         statusCode: HTTP_STATUS.OK,
@@ -1285,6 +1415,26 @@ class AuthService {
 
       user.role = normalizedRole;
       await user.save();
+
+      // Realtime notification & sync
+      try {
+        emitAdminNotification({
+          type: 'user_role_changed',
+          title: 'Phân quyền người dùng thay đổi',
+          message: `Người dùng ${user.email} đã được đổi vai trò sang "${normalizedRole.toUpperCase()}".`,
+          actor: { id: user._id, name: user.email },
+          targetId: String(user._id),
+          targetType: 'User',
+          link: 'users',
+        });
+        emitToAdmin('admin:user_updated', {
+          userId: String(user._id),
+          role: normalizedRole,
+        });
+        emitStatsUpdate('user:role_updated');
+      } catch (err) {
+        console.error('Realtime emit user_role_changed error:', err);
+      }
 
       return {
         success: true,
